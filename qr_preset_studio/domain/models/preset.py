@@ -1,13 +1,14 @@
-﻿# qr_preset_studio/core/models.py
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, fields
 from typing import Any
 
-BODY_SHAPES = ["square", "rounded"]
-EYE_FRAME_SHAPES = ["square", "rounded"]
-EYE_BALL_SHAPES = ["square", "circle"]
-GRADIENT_DIRECTIONS = ["horizontal", "vertical", "diagonal_down", "diagonal_up"]
+from qr_preset_studio.domain.constants import (
+    BODY_SHAPES,
+    EYE_BALL_SHAPES,
+    EYE_FRAME_SHAPES,
+    GRADIENT_DIRECTIONS,
+)
 
 
 @dataclass(slots=True)
@@ -46,14 +47,10 @@ class Preset:
         allowed = {field.name for field in fields(cls)}
         data = {key: value for key, value in raw.items() if key in allowed}
         preset = cls(**data)
-        if preset.body_shape not in BODY_SHAPES:
-            preset.body_shape = BODY_SHAPES[0]
-        if preset.eye_frame_shape not in EYE_FRAME_SHAPES:
-            preset.eye_frame_shape = EYE_FRAME_SHAPES[0]
-        if preset.eye_ball_shape not in EYE_BALL_SHAPES:
-            preset.eye_ball_shape = EYE_BALL_SHAPES[0]
-        if preset.gradient_direction not in GRADIENT_DIRECTIONS:
-            preset.gradient_direction = GRADIENT_DIRECTIONS[0]
+        preset.body_shape = _safe_choice(preset.body_shape, BODY_SHAPES)
+        preset.eye_frame_shape = _safe_choice(preset.eye_frame_shape, EYE_FRAME_SHAPES)
+        preset.eye_ball_shape = _safe_choice(preset.eye_ball_shape, EYE_BALL_SHAPES)
+        preset.gradient_direction = _safe_choice(preset.gradient_direction, GRADIENT_DIRECTIONS)
         return preset
 
     def scaled_copy(self, factor: float) -> "Preset":
@@ -81,3 +78,7 @@ class Preset:
             qr_border_width=max(0, int(round(self.qr_border_width * factor))),
             qr_border_color=self.qr_border_color,
         )
+
+
+def _safe_choice(value: str, allowed: list[str]) -> str:
+    return value if value in allowed else allowed[0]

@@ -1,4 +1,3 @@
-﻿# qr_preset_studio/ui/color_button.py
 from __future__ import annotations
 
 from PySide6.QtGui import QColor
