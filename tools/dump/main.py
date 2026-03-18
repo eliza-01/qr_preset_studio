@@ -45,7 +45,7 @@ ALL_FILES: bool = True
 
 # Директории (относительно корня проекта), из которых собираем ВСЁ рекурсивно.
 INCLUDE_DIRS: List[str] = [
-    "src",
+    "qr_preset_studio",
     # "data",
     # "src/app/ui_relative_compare",
     # "fxrelval_mt5/src",
@@ -54,12 +54,6 @@ INCLUDE_DIRS: List[str] = [
 
 # Файлы (относительно корня проекта), которые добавляем явно.
 INCLUDE_FILES: List[str] = [
-    ".env.example",
-    ".gitignore",
-    "patch.py",
-    "pyproject.toml",
-    "README.md",
-    "requirements.txt",
 
 ]
 
@@ -168,21 +162,21 @@ def normalize_rel_posix(p: str) -> str:
 def find_project_root_by_markers(start: Path) -> Optional[Path]:
     """
     Ищем вверх от start ближайший каталог с маркерами проекта.
-    Для Python — `pyproject.toml` (основной маркер).
+    Для Python — `README.md` (основной маркер).
     """
     cur = start.resolve()
     if cur.is_file():
         cur = cur.parent
 
     for parent in [cur, *cur.parents]:
-        if (parent / "pyproject.toml").is_file():
+        if (parent / "README.md").is_file():
             return parent
     return None
 
 
 def script_based_project_root() -> Path:
     """
-    По умолчанию считаем корнем ближайшую директорию с pyproject.toml
+    По умолчанию считаем корнем ближайшую директорию с README.md
     относительно расположения скрипта.
     """
     here = Path(__file__).resolve()

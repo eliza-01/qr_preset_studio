@@ -1,5 +1,4 @@
-﻿# qr_preset_studio/ui/main_window.py
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from pathlib import Path
 
@@ -7,6 +6,8 @@ from PIL.ImageQt import ImageQt
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
+    QCheckBox,
+    QComboBox,
     QFileDialog,
     QFormLayout,
     QGroupBox,
@@ -17,12 +18,11 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QPushButton,
     QScrollArea,
+    QSlider,
     QSpinBox,
     QSplitter,
     QVBoxLayout,
     QWidget,
-    QCheckBox,
-    QComboBox,
 )
 
 from qr_preset_studio.core.models import (
@@ -50,6 +50,7 @@ class MainWindow(QMainWindow):
         self._build_ui()
         self._set_controls_from_preset(self._preset)
         self._bind_events()
+        self._sync_preview_zoom_label()
         self._refresh_preview()
         self.statusBar().showMessage("Готово")
 
@@ -76,6 +77,25 @@ class MainWindow(QMainWindow):
         preview_layout = QVBoxLayout(preview_container)
         preview_layout.setContentsMargins(0, 0, 0, 0)
         preview_layout.setSpacing(12)
+
+        preview_toolbar = QWidget()
+        preview_toolbar_layout = QHBoxLayout(preview_toolbar)
+        preview_toolbar_layout.setContentsMargins(8, 4, 8, 0)
+        preview_toolbar_layout.setSpacing(10)
+        preview_toolbar_layout.addWidget(QLabel("Масштаб превью"))
+
+        self.preview_zoom_slider = QSlider(Qt.Horizontal)
+        self.preview_zoom_slider.setRange(10, 400)
+        self.preview_zoom_slider.setSingleStep(10)
+        self.preview_zoom_slider.setPageStep(25)
+        self.preview_zoom_slider.setValue(100)
+        preview_toolbar_layout.addWidget(self.preview_zoom_slider, 1)
+
+        self.preview_zoom_value_label = QLabel()
+        self.preview_zoom_value_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        self.preview_zoom_value_label.setMinimumWidth(56)
+        preview_toolbar_layout.addWidget(self.preview_zoom_value_label)
+        preview_layout.addWidget(preview_toolbar)
 
         self.preview_label = QLabel()
         self.preview_label.setAlignment(Qt.AlignCenter)
@@ -242,6 +262,7 @@ class MainWindow(QMainWindow):
             self.qr_background_padding_spin,
             self.qr_background_radius_spin,
             self.qr_border_width_spin,
+            self.preview_zoom_slider,
         ]
         for widget in widgets:
             signal = getattr(widget, "textChanged", None) or getattr(widget, "valueChanged", None) or getattr(widget, "currentTextChanged", None) or getattr(widget, "toggled", None)
@@ -257,9 +278,14 @@ class MainWindow(QMainWindow):
         ]:
             button.clicked.connect(self._refresh_preview)
 
+        self.preview_zoom_slider.valueChanged.connect(self._sync_preview_zoom_label)
+
+    def _sync_preview_zoom_label(self) -> None:
+        self.preview_zoom_value_label.setText(f"{self.preview_zoom_slider.value()}%")
+
     def _refresh_preview(self) -> None:
         self._preset = self._collect_preset_from_controls()
-        image = render_preview(self._preset)
+        image = render_preview(self._preset, self.preview_zoom_slider.value())
         self._preview_pixmap = QPixmap.fromImage(ImageQt(image))
         self.preview_label.setPixmap(self._preview_pixmap)
         self.preview_label.adjustSize()
