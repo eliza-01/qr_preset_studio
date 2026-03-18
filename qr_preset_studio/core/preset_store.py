@@ -1,3 +1,4 @@
+﻿# qr_preset_studio/core/preset_store.py
 from __future__ import annotations
 
 import json

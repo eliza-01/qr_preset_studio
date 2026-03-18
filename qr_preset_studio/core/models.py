@@ -1,3 +1,4 @@
+﻿# qr_preset_studio/core/models.py
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, fields
