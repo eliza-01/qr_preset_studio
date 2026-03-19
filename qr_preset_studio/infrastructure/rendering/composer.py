@@ -89,6 +89,8 @@ def _draw_modules(canvas: Image.Image, preset: Preset, matrix, matrix_size: int,
 def _draw_finders(canvas: Image.Image, preset: Preset, layout, origins) -> None:
     draw = ImageDraw.Draw(canvas)
     for origin_col, origin_row in origins:
+        finder_position = _finder_position(origin_col, origin_row, layout.active_modules)
+
         frame_rect = active_rect(
             active_x=layout.active_x,
             active_y=layout.active_y,
@@ -110,6 +112,7 @@ def _draw_finders(canvas: Image.Image, preset: Preset, layout, origins) -> None:
             layout.module_thickness,
             preset.eye_frame_shape,
             frame_color,
+            finder_position,
         )
 
         ball_col = origin_col + FINDER_BALL_OFFSET
@@ -129,4 +132,21 @@ def _draw_finders(canvas: Image.Image, preset: Preset, layout, origins) -> None:
             layout.active_modules,
             preset,
         )
-        draw_eye_ball(draw, ball_rect, preset.eye_ball_shape, ball_color)
+        draw_eye_ball(
+            draw,
+            ball_rect,
+            preset.eye_ball_shape,
+            ball_color,
+            finder_position,
+        )
+
+
+def _finder_position(origin_col: int, origin_row: int, active_modules: int) -> str:
+    last_origin = active_modules - FINDER_SIZE
+    if origin_row == 0 and origin_col == 0:
+        return "top_left"
+    if origin_row == 0 and origin_col == last_origin:
+        return "top_right"
+    if origin_row == last_origin and origin_col == 0:
+        return "bottom_left"
+    return "bottom_right"
