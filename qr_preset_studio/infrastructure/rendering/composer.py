@@ -7,12 +7,14 @@ from qr_preset_studio.infrastructure.rendering.body_shapes import render_body
 from qr_preset_studio.infrastructure.rendering.canvas import build_canvas
 from qr_preset_studio.infrastructure.rendering.color_map import module_color
 from qr_preset_studio.infrastructure.rendering.constants import (
-    BASE_RENDER_DPI,
     FINDER_BALL_OFFSET,
     FINDER_BALL_SIZE,
     FINDER_SIZE,
+    MAX_EXPORT_SIDE,
     MAX_QR_LAYER_SIDE,
+    PRINT_BASE_DPI,
     QR_BORDER_MODULES,
+    ROUNDED_QR_LAYER_SUPERSAMPLE,
 )
 from qr_preset_studio.infrastructure.rendering.drawers import (
     draw_eye_ball,
@@ -27,7 +29,7 @@ from qr_preset_studio.infrastructure.rendering.qr_matrix import (
 )
 
 
-def render_preset(preset: Preset) -> Image.Image:
+def render_preset(preset: Preset, qr_layer_scale: float | None = None) -> Image.Image:
     canvas = build_canvas(preset)
     if not preset.link.strip():
         return canvas
@@ -39,8 +41,25 @@ def render_preset(preset: Preset) -> Image.Image:
     origins = finder_origins(active_modules)
     body_map = _build_body_map(matrix, matrix_size, origins)
 
-    _render_qr_layer(canvas, preset, layout, body_map, origins)
+    _render_qr_layer(
+        canvas,
+        preset,
+        layout,
+        body_map,
+        origins,
+        qr_layer_scale=_normalize_qr_layer_scale(preset, qr_layer_scale),
+    )
     return canvas
+
+
+def render_export_preset(preset: Preset) -> Image.Image:
+    export_scale = _export_canvas_scale(preset)
+    export_preset = preset if abs(export_scale - 1.0) < 1e-9 else preset.scaled_copy(export_scale)
+
+    image = render_preset(export_preset)
+    effective_dpi = int(round(PRINT_BASE_DPI * export_scale))
+    image.info["dpi"] = (effective_dpi, effective_dpi)
+    return image
 
 
 def _render_qr_layer(
@@ -49,12 +68,13 @@ def _render_qr_layer(
     layout: QrLayout,
     body_map: list[list[bool]],
     origins,
+    qr_layer_scale: float,
 ) -> None:
     card_left, card_top, card_right, card_bottom = layout.card_rect
     card_width = max(1, card_right - card_left)
     card_height = max(1, card_bottom - card_top)
 
-    render_scale = _qr_render_scale(preset.qr_dpi, card_width, card_height)
+    render_scale = _qr_render_scale(qr_layer_scale, card_width, card_height)
     layer_size = (
         max(1, int(round(card_width * render_scale))),
         max(1, int(round(card_height * render_scale))),
@@ -184,11 +204,35 @@ def _finder_position(origin_col: int, origin_row: int, active_modules: int) -> s
     return "bottom_right"
 
 
-def _qr_render_scale(qr_dpi: int, card_width: int, card_height: int) -> float:
-    requested_scale = max(1.0, qr_dpi / BASE_RENDER_DPI)
+def _qr_render_scale(requested_scale: float, card_width: int, card_height: int) -> float:
+    requested_scale = max(1.0, float(requested_scale))
     max_card_side = max(1, card_width, card_height)
     memory_cap_scale = max(1.0, MAX_QR_LAYER_SIDE / max_card_side)
     return max(1.0, min(requested_scale, memory_cap_scale))
+
+
+def _normalize_qr_layer_scale(preset: Preset, qr_layer_scale: float | None) -> float:
+    if qr_layer_scale is not None:
+        return max(1.0, float(qr_layer_scale))
+
+    if preset.body_shape != "square":
+        return ROUNDED_QR_LAYER_SUPERSAMPLE
+    if preset.eye_frame_shape != "square":
+        return ROUNDED_QR_LAYER_SUPERSAMPLE
+    if preset.eye_ball_shape != "square":
+        return ROUNDED_QR_LAYER_SUPERSAMPLE
+    return 1.0
+
+
+def _export_canvas_scale(preset: Preset) -> float:
+    target_dpi = max(PRINT_BASE_DPI, preset.qr_dpi)
+    requested_scale = target_dpi / PRINT_BASE_DPI
+
+    max_width_scale = MAX_EXPORT_SIDE / max(1, preset.canvas_width)
+    max_height_scale = MAX_EXPORT_SIDE / max(1, preset.canvas_height)
+    max_export_scale = max(1.0, min(max_width_scale, max_height_scale))
+
+    return max(1.0, min(requested_scale, max_export_scale))
 
 
 def _visible_layer(

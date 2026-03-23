@@ -172,7 +172,8 @@ class MainWindow(QMainWindow):
 
         try:
             image = self._render_service.render_export(preset)
-            image.save(path, format="PNG", dpi=(preset.qr_dpi, preset.qr_dpi))
+            dpi = image.info.get("dpi", (300, 300))
+            image.save(path, format="PNG", dpi=dpi)
         except ValueError as exc:
             QMessageBox.warning(self, "QR не помещается", str(exc))
             return
@@ -180,7 +181,8 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, "Ошибка экспорта", str(exc))
             return
 
-        self.statusBar().showMessage(f"PNG сохранён: {path}", 5000)
+        actual_dpi = int(round(dpi[0])) if dpi else 300
+        self.statusBar().showMessage(f"PNG сохранён: {path} ({actual_dpi} dpi)", 5000)
 
     def _choose_background(self) -> None:
         path, _ = QFileDialog.getOpenFileName(
