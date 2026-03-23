@@ -134,12 +134,18 @@ class Preset:
     canvas_background_color: str = "#F3F4F6"
     background_image_path: str = ""
 
+    # qr-monkey preset
+    # qr_version: int = 3
+    # qr_error_correction: str = "M"
+    # qr_mask_pattern: int = 6
+    # qr_optimize: int = 20
+
     qr_scale_percent: int = 42
     qr_offset_x: int = 0
     qr_offset_y: int = 0
-    qr_version: int = 0
-    qr_error_correction: str = "H"
-    qr_mask_pattern: int = -1
+    qr_version: int = 3
+    qr_error_correction: str = "M"
+    qr_mask_pattern: int = 6
     qr_optimize: int = 20
 
     body_shape: str = "square"
@@ -1003,7 +1009,30 @@ class PresetEditor(QWidget):
         self.qr_style_panel.qr_color_button.set_color(preset.qr_foreground_color)
         self.qr_style_panel.gradient_enabled_check.setChecked(preset.gradient_enabled)
         self.qr_style_panel.gradient_color_button.set_color(preset.gradient_color)
-        self.qr_style_panel.gradient_direction_combo.set
+        self.qr_style_panel.gradient_direction_combo.setCurrentText(preset.gradient_direction)
+
+        self.qr_card_panel.qr_background_enabled_check.setChecked(preset.qr_background_enabled)
+        self.qr_card_panel.qr_background_color_button.set_color(preset.qr_background_color)
+        self.qr_card_panel.qr_background_padding_spin.setValue(preset.qr_background_padding)
+        self.qr_card_panel.qr_background_radius_spin.setValue(preset.qr_background_radius)
+        self.qr_card_panel.qr_border_width_spin.setValue(preset.qr_border_width)
+        self.qr_card_panel.qr_border_color_button.set_color(preset.qr_border_color)
+
+
+def _parse_version(value: str) -> int:
+    return 0 if value == "auto" else int(value)
+
+
+def _parse_mask(value: str) -> int:
+    return -1 if value == "auto" else int(value)
+
+
+def _version_text(value: int) -> str:
+    return "auto" if value <= 0 else str(value)
+
+
+def _mask_text(value: int) -> str:
+    return "auto" if value < 0 else str(value)
 
 # qr_preset_studio/ui/panels/__init__.py
 __all__ = []

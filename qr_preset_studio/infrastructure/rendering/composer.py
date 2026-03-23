@@ -3,6 +3,7 @@ from __future__ import annotations
 from PIL import Image, ImageDraw
 
 from qr_preset_studio.domain.models.preset import Preset
+from qr_preset_studio.infrastructure.rendering.body_shapes import render_body
 from qr_preset_studio.infrastructure.rendering.canvas import build_canvas
 from qr_preset_studio.infrastructure.rendering.color_map import module_color
 from qr_preset_studio.infrastructure.rendering.constants import (
@@ -12,7 +13,6 @@ from qr_preset_studio.infrastructure.rendering.constants import (
     QR_BORDER_MODULES,
 )
 from qr_preset_studio.infrastructure.rendering.drawers import (
-    draw_body_module,
     draw_eye_ball,
     draw_eye_frame,
 )
@@ -35,9 +35,10 @@ def render_preset(preset: Preset) -> Image.Image:
     active_modules = active_module_count(matrix_size)
     layout = build_qr_layout(preset, active_modules)
     origins = finder_origins(active_modules)
+    body_map = _build_body_map(matrix, matrix_size, origins)
 
     _draw_card(canvas, preset, layout)
-    _draw_modules(canvas, preset, matrix, matrix_size, layout, origins)
+    render_body(canvas, preset, layout, body_map)
     _draw_finders(canvas, preset, layout, origins)
     return canvas
 
@@ -54,36 +55,26 @@ def _draw_card(canvas: Image.Image, preset: Preset, layout) -> None:
     )
 
 
-def _draw_modules(canvas: Image.Image, preset: Preset, matrix, matrix_size: int, layout, origins) -> None:
-    draw = ImageDraw.Draw(canvas)
+def _build_body_map(matrix, matrix_size: int, origins) -> list[list[bool]]:
+    body_map: list[list[bool]] = []
+
     for row, line in enumerate(matrix):
         if row < QR_BORDER_MODULES or row >= matrix_size - QR_BORDER_MODULES:
             continue
+
         active_row = row - QR_BORDER_MODULES
+        body_row: list[bool] = []
 
         for col, is_dark in enumerate(line):
-            if not is_dark or col < QR_BORDER_MODULES or col >= matrix_size - QR_BORDER_MODULES:
+            if col < QR_BORDER_MODULES or col >= matrix_size - QR_BORDER_MODULES:
                 continue
 
             active_col = col - QR_BORDER_MODULES
-            if in_finder_area(active_row, active_col, origins):
-                continue
+            body_row.append(bool(is_dark and not in_finder_area(active_row, active_col, origins)))
 
-            rect = active_rect(
-                active_x=layout.active_x,
-                active_y=layout.active_y,
-                active_col=active_col,
-                active_row=active_row,
-                span=1,
-                active_modules=layout.active_modules,
-                active_qr_size=layout.active_qr_size,
-            )
-            draw_body_module(
-                draw,
-                rect,
-                module_color(active_col, active_row, layout.active_modules, preset),
-                preset.body_shape,
-            )
+        body_map.append(body_row)
+
+    return body_map
 
 
 def _draw_finders(canvas: Image.Image, preset: Preset, layout, origins) -> None:
