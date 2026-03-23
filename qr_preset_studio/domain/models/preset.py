@@ -8,6 +8,7 @@ from qr_preset_studio.domain.constants import (
     EYE_BALL_SHAPES,
     EYE_FRAME_SHAPES,
     GRADIENT_DIRECTIONS,
+    QR_ERROR_CORRECTION_LEVELS,
 )
 
 
@@ -19,9 +20,19 @@ class Preset:
     canvas_background_color: str = "#F3F4F6"
     background_image_path: str = ""
 
+    # qr-monkey preset
+    # qr_version: int = 3
+    # qr_error_correction: str = "M"
+    # qr_mask_pattern: int = 6
+    # qr_optimize: int = 20
+
     qr_scale_percent: int = 42
     qr_offset_x: int = 0
     qr_offset_y: int = 0
+    qr_version: int = 3
+    qr_error_correction: str = "M"
+    qr_mask_pattern: int = 6
+    qr_optimize: int = 20
 
     body_shape: str = "square"
     eye_frame_shape: str = "square"
@@ -51,6 +62,10 @@ class Preset:
         preset.eye_frame_shape = _safe_choice(preset.eye_frame_shape, EYE_FRAME_SHAPES)
         preset.eye_ball_shape = _safe_choice(preset.eye_ball_shape, EYE_BALL_SHAPES)
         preset.gradient_direction = _safe_choice(preset.gradient_direction, GRADIENT_DIRECTIONS)
+        preset.qr_error_correction = _safe_choice(preset.qr_error_correction, QR_ERROR_CORRECTION_LEVELS)
+        preset.qr_version = _clamp_int(preset.qr_version, 0, 40, 0)
+        preset.qr_mask_pattern = _clamp_int(preset.qr_mask_pattern, -1, 7, -1)
+        preset.qr_optimize = _clamp_int(preset.qr_optimize, 0, 100, 20)
         return preset
 
     def scaled_copy(self, factor: float) -> "Preset":
@@ -64,6 +79,10 @@ class Preset:
             qr_scale_percent=self.qr_scale_percent,
             qr_offset_x=int(round(self.qr_offset_x * factor)),
             qr_offset_y=int(round(self.qr_offset_y * factor)),
+            qr_version=self.qr_version,
+            qr_error_correction=self.qr_error_correction,
+            qr_mask_pattern=self.qr_mask_pattern,
+            qr_optimize=self.qr_optimize,
             body_shape=self.body_shape,
             eye_frame_shape=self.eye_frame_shape,
             eye_ball_shape=self.eye_ball_shape,
@@ -82,3 +101,11 @@ class Preset:
 
 def _safe_choice(value: str, allowed: list[str]) -> str:
     return value if value in allowed else allowed[0]
+
+
+def _clamp_int(value: Any, minimum: int, maximum: int, fallback: int) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return fallback
+    return max(minimum, min(maximum, parsed))

@@ -13,6 +13,7 @@ def draw_body_module(
         radius = max(1, int(min(rect[2] - rect[0], rect[3] - rect[1]) * 0.3))
         draw.rounded_rectangle(rect, radius=radius, fill=color)
         return
+
     draw.rectangle(rect, fill=color)
 
 

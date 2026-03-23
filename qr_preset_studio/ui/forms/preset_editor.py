@@ -51,6 +51,10 @@ class PresetEditor(QWidget):
             qr_scale_percent=self.content_panel.qr_scale_spin.value(),
             qr_offset_x=self.content_panel.qr_offset_x_spin.value(),
             qr_offset_y=self.content_panel.qr_offset_y_spin.value(),
+            qr_version=_parse_version(self.content_panel.qr_version_combo.currentText()),
+            qr_error_correction=self.content_panel.qr_error_correction_combo.currentText(),
+            qr_mask_pattern=_parse_mask(self.content_panel.qr_mask_pattern_combo.currentText()),
+            qr_optimize=self.content_panel.qr_optimize_spin.value(),
             body_shape=self.qr_style_panel.body_shape_combo.currentText(),
             eye_frame_shape=self.qr_style_panel.eye_frame_combo.currentText(),
             eye_ball_shape=self.qr_style_panel.eye_ball_combo.currentText(),
@@ -76,6 +80,10 @@ class PresetEditor(QWidget):
         self.content_panel.qr_scale_spin.setValue(preset.qr_scale_percent)
         self.content_panel.qr_offset_x_spin.setValue(preset.qr_offset_x)
         self.content_panel.qr_offset_y_spin.setValue(preset.qr_offset_y)
+        self.content_panel.qr_version_combo.setCurrentText(_version_text(preset.qr_version))
+        self.content_panel.qr_error_correction_combo.setCurrentText(preset.qr_error_correction)
+        self.content_panel.qr_mask_pattern_combo.setCurrentText(_mask_text(preset.qr_mask_pattern))
+        self.content_panel.qr_optimize_spin.setValue(preset.qr_optimize)
 
         self.qr_style_panel.body_shape_combo.setCurrentText(preset.body_shape)
         self.qr_style_panel.eye_frame_combo.setCurrentText(preset.eye_frame_shape)
@@ -91,3 +99,19 @@ class PresetEditor(QWidget):
         self.qr_card_panel.qr_background_radius_spin.setValue(preset.qr_background_radius)
         self.qr_card_panel.qr_border_width_spin.setValue(preset.qr_border_width)
         self.qr_card_panel.qr_border_color_button.set_color(preset.qr_border_color)
+
+
+def _parse_version(value: str) -> int:
+    return 0 if value == "auto" else int(value)
+
+
+def _parse_mask(value: str) -> int:
+    return -1 if value == "auto" else int(value)
+
+
+def _version_text(value: int) -> str:
+    return "auto" if value <= 0 else str(value)
+
+
+def _mask_text(value: int) -> str:
+    return "auto" if value < 0 else str(value)

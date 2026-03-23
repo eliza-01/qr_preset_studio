@@ -1,21 +1,35 @@
 from __future__ import annotations
 
-from typing import Iterable
-
 import qrcode
+from qrcode.exceptions import DataOverflowError
 
+from qr_preset_studio.domain.models.preset import Preset
 from qr_preset_studio.infrastructure.rendering.constants import FINDER_SIZE, QR_BORDER_MODULES
 
 
-def build_matrix(link: str) -> list[list[bool]]:
+_ERROR_CORRECTION_MAP = {
+    "L": qrcode.constants.ERROR_CORRECT_L,
+    "M": qrcode.constants.ERROR_CORRECT_M,
+    "Q": qrcode.constants.ERROR_CORRECT_Q,
+    "H": qrcode.constants.ERROR_CORRECT_H,
+}
+
+
+def build_matrix(preset: Preset) -> list[list[bool]]:
     qr = qrcode.QRCode(
-        version=None,
-        error_correction=qrcode.constants.ERROR_CORRECT_H,
+        version=preset.qr_version or None,
+        error_correction=_ERROR_CORRECTION_MAP[preset.qr_error_correction],
         box_size=1,
         border=QR_BORDER_MODULES,
+        mask_pattern=None if preset.qr_mask_pattern < 0 else preset.qr_mask_pattern,
     )
-    qr.add_data(link)
-    qr.make(fit=True)
+    qr.add_data(preset.link, optimize=preset.qr_optimize)
+
+    try:
+        qr.make(fit=preset.qr_version == 0)
+    except DataOverflowError as exc:
+        raise ValueError(_overflow_message(preset)) from exc
+
     return qr.get_matrix()
 
 
@@ -28,8 +42,18 @@ def finder_origins(active_modules: int) -> list[tuple[int, int]]:
     return [(0, 0), (end, 0), (0, end)]
 
 
-def in_finder_area(row: int, col: int, origins: Iterable[tuple[int, int]]) -> bool:
+def in_finder_area(row: int, col: int, origins) -> bool:
     for origin_col, origin_row in origins:
         if origin_col <= col < origin_col + FINDER_SIZE and origin_row <= row < origin_row + FINDER_SIZE:
             return True
     return False
+
+
+def _overflow_message(preset: Preset) -> str:
+    version_label = "auto" if preset.qr_version == 0 else str(preset.qr_version)
+    mask_label = "auto" if preset.qr_mask_pattern < 0 else str(preset.qr_mask_pattern)
+    return (
+        "Текущие параметры QR не помещают ссылку: "
+        f"version={version_label}, ecc={preset.qr_error_correction}, "
+        f"mask={mask_label}, optimize={preset.qr_optimize}."
+    )

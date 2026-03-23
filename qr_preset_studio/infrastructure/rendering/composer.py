@@ -30,7 +30,7 @@ def render_preset(preset: Preset) -> Image.Image:
     if not preset.link.strip():
         return canvas
 
-    matrix = build_matrix(preset.link)
+    matrix = build_matrix(preset)
     matrix_size = len(matrix)
     active_modules = active_module_count(matrix_size)
     layout = build_qr_layout(preset, active_modules)

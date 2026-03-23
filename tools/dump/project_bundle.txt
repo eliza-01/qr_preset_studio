@@ -100,9 +100,13 @@ __all__ = []
 
 # qr_preset_studio/domain/constants.py
 BODY_SHAPES = ["square", "rounded"]
-EYE_FRAME_SHAPES = ["square", "rounded"]
-EYE_BALL_SHAPES = ["square", "circle"]
+EYE_FRAME_SHAPES = ["square", "rounded", "classy_rounded", "classy"]
+EYE_BALL_SHAPES = ["square", "circle", "rounded", "classy_rounded", "classy"]
 GRADIENT_DIRECTIONS = ["horizontal", "vertical", "diagonal_down", "diagonal_up"]
+
+QR_ERROR_CORRECTION_LEVELS = ["L", "M", "Q", "H"]
+QR_VERSION_VALUES = ["auto"] + [str(index) for index in range(1, 41)]
+QR_MASK_PATTERN_VALUES = ["auto"] + [str(index) for index in range(8)]
 
 # qr_preset_studio/domain/models/__init__.py
 __all__ = []
@@ -118,6 +122,7 @@ from qr_preset_studio.domain.constants import (
     EYE_BALL_SHAPES,
     EYE_FRAME_SHAPES,
     GRADIENT_DIRECTIONS,
+    QR_ERROR_CORRECTION_LEVELS,
 )
 
 
@@ -132,6 +137,10 @@ class Preset:
     qr_scale_percent: int = 42
     qr_offset_x: int = 0
     qr_offset_y: int = 0
+    qr_version: int = 0
+    qr_error_correction: str = "H"
+    qr_mask_pattern: int = -1
+    qr_optimize: int = 20
 
     body_shape: str = "square"
     eye_frame_shape: str = "square"
@@ -161,6 +170,10 @@ class Preset:
         preset.eye_frame_shape = _safe_choice(preset.eye_frame_shape, EYE_FRAME_SHAPES)
         preset.eye_ball_shape = _safe_choice(preset.eye_ball_shape, EYE_BALL_SHAPES)
         preset.gradient_direction = _safe_choice(preset.gradient_direction, GRADIENT_DIRECTIONS)
+        preset.qr_error_correction = _safe_choice(preset.qr_error_correction, QR_ERROR_CORRECTION_LEVELS)
+        preset.qr_version = _clamp_int(preset.qr_version, 0, 40, 0)
+        preset.qr_mask_pattern = _clamp_int(preset.qr_mask_pattern, -1, 7, -1)
+        preset.qr_optimize = _clamp_int(preset.qr_optimize, 0, 100, 20)
         return preset
 
     def scaled_copy(self, factor: float) -> "Preset":
@@ -174,6 +187,10 @@ class Preset:
             qr_scale_percent=self.qr_scale_percent,
             qr_offset_x=int(round(self.qr_offset_x * factor)),
             qr_offset_y=int(round(self.qr_offset_y * factor)),
+            qr_version=self.qr_version,
+            qr_error_correction=self.qr_error_correction,
+            qr_mask_pattern=self.qr_mask_pattern,
+            qr_optimize=self.qr_optimize,
             body_shape=self.body_shape,
             eye_frame_shape=self.eye_frame_shape,
             eye_ball_shape=self.eye_ball_shape,
@@ -192,6 +209,14 @@ class Preset:
 
 def _safe_choice(value: str, allowed: list[str]) -> str:
     return value if value in allowed else allowed[0]
+
+
+def _clamp_int(value: Any, minimum: int, maximum: int, fallback: int) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return fallback
+    return max(minimum, min(maximum, parsed))
 
 # qr_preset_studio/infrastructure/__init__.py
 __all__ = []
@@ -277,6 +302,98 @@ class JsonPresetRepository:
 # qr_preset_studio/infrastructure/rendering/__init__.py
 __all__ = []
 
+# qr_preset_studio/infrastructure/rendering/body_shapes.py
+from __future__ import annotations
+
+from PIL import Image, ImageDraw
+
+from qr_preset_studio.domain.models.preset import Preset
+from qr_preset_studio.infrastructure.rendering.color_map import module_color
+from qr_preset_studio.infrastructure.rendering.geometry import grid_edge
+
+
+LIQUID_OVERSAMPLE = 4
+
+
+def draw_body_module(
+    draw: ImageDraw.ImageDraw,
+    rect: tuple[int, int, int, int],
+    color: tuple[int, int, int],
+    shape: str,
+) -> None:
+    if shape == "rounded":
+        radius = max(1, int(min(rect[2] - rect[0], rect[3] - rect[1]) * 0.3))
+        draw.rounded_rectangle(rect, radius=radius, fill=color)
+        return
+    draw.rectangle(rect, fill=color)
+
+
+def render_liquid_body(
+    canvas: Image.Image,
+    preset: Preset,
+    layout,
+    body_map: list[list[bool]],
+) -> None:
+    layer = Image.new(
+        "RGBA",
+        (canvas.width * LIQUID_OVERSAMPLE, canvas.height * LIQUID_OVERSAMPLE),
+        (0, 0, 0, 0),
+    )
+    draw = ImageDraw.Draw(layer)
+    module_pitch = layout.active_qr_size / max(1, layout.active_modules)
+    diameter = max(
+        1,
+        int(round(module_pitch * (preset.liquid_body_size_percent / 100) * LIQUID_OVERSAMPLE)),
+    )
+    radius = max(1, diameter // 2)
+
+    for row, line in enumerate(body_map):
+        for col, is_dark in enumerate(line):
+            if not is_dark:
+                continue
+
+            center_x, center_y = _scaled_center(layout, col, row)
+            color = (*module_color(col, row, layout.active_modules, preset), 255)
+
+            draw.ellipse(_ellipse_rect(center_x, center_y, radius), fill=color)
+
+            if _has_right(body_map, row, col):
+                right_x, _ = _scaled_center(layout, col + 1, row)
+                draw.rounded_rectangle(
+                    (center_x - radius, center_y - radius, right_x + radius, center_y + radius),
+                    radius=radius,
+                    fill=color,
+                )
+
+            if _has_down(body_map, row, col):
+                _, down_y = _scaled_center(layout, col, row + 1)
+                draw.rounded_rectangle(
+                    (center_x - radius, center_y - radius, center_x + radius, down_y + radius),
+                    radius=radius,
+                    fill=color,
+                )
+
+    layer = layer.resize(canvas.size, Image.Resampling.LANCZOS)
+    canvas.alpha_composite(layer)
+
+
+def _scaled_center(layout, col: int, row: int) -> tuple[int, int]:
+    center_x = grid_edge(layout.active_x, col + 0.5, layout.active_modules, layout.active_qr_size)
+    center_y = grid_edge(layout.active_y, row + 0.5, layout.active_modules, layout.active_qr_size)
+    return center_x * LIQUID_OVERSAMPLE, center_y * LIQUID_OVERSAMPLE
+
+
+def _ellipse_rect(center_x: int, center_y: int, radius: int) -> tuple[int, int, int, int]:
+    return center_x - radius, center_y - radius, center_x + radius, center_y + radius
+
+
+def _has_right(body_map: list[list[bool]], row: int, col: int) -> bool:
+    return col + 1 < len(body_map[row]) and body_map[row][col + 1]
+
+
+def _has_down(body_map: list[list[bool]], row: int, col: int) -> bool:
+    return row + 1 < len(body_map) and body_map[row + 1][col]
+
 # qr_preset_studio/infrastructure/rendering/canvas.py
 from __future__ import annotations
 
@@ -356,7 +473,7 @@ def render_preset(preset: Preset) -> Image.Image:
     if not preset.link.strip():
         return canvas
 
-    matrix = build_matrix(preset.link)
+    matrix = build_matrix(preset)
     matrix_size = len(matrix)
     active_modules = active_module_count(matrix_size)
     layout = build_qr_layout(preset, active_modules)
@@ -415,6 +532,8 @@ def _draw_modules(canvas: Image.Image, preset: Preset, matrix, matrix_size: int,
 def _draw_finders(canvas: Image.Image, preset: Preset, layout, origins) -> None:
     draw = ImageDraw.Draw(canvas)
     for origin_col, origin_row in origins:
+        finder_position = _finder_position(origin_col, origin_row, layout.active_modules)
+
         frame_rect = active_rect(
             active_x=layout.active_x,
             active_y=layout.active_y,
@@ -436,6 +555,7 @@ def _draw_finders(canvas: Image.Image, preset: Preset, layout, origins) -> None:
             layout.module_thickness,
             preset.eye_frame_shape,
             frame_color,
+            finder_position,
         )
 
         ball_col = origin_col + FINDER_BALL_OFFSET
@@ -455,7 +575,24 @@ def _draw_finders(canvas: Image.Image, preset: Preset, layout, origins) -> None:
             layout.active_modules,
             preset,
         )
-        draw_eye_ball(draw, ball_rect, preset.eye_ball_shape, ball_color)
+        draw_eye_ball(
+            draw,
+            ball_rect,
+            preset.eye_ball_shape,
+            ball_color,
+            finder_position,
+        )
+
+
+def _finder_position(origin_col: int, origin_row: int, active_modules: int) -> str:
+    last_origin = active_modules - FINDER_SIZE
+    if origin_row == 0 and origin_col == 0:
+        return "top_left"
+    if origin_row == 0 and origin_col == last_origin:
+        return "top_right"
+    if origin_row == last_origin and origin_col == 0:
+        return "bottom_left"
+    return "bottom_right"
 
 # qr_preset_studio/infrastructure/rendering/constants.py
 FINDER_SIZE = 7
@@ -480,6 +617,7 @@ def draw_body_module(
         radius = max(1, int(min(rect[2] - rect[0], rect[3] - rect[1]) * 0.3))
         draw.rounded_rectangle(rect, radius=radius, fill=color)
         return
+
     draw.rectangle(rect, fill=color)
 
 
@@ -489,12 +627,21 @@ def draw_eye_frame(
     module_thickness: int,
     shape: str,
     color: tuple[int, int, int],
+    finder_position: str,
 ) -> None:
-    if shape == "rounded":
-        radius = max(1, int(min(rect[2] - rect[0], rect[3] - rect[1]) * 0.16))
-        draw.rounded_rectangle(rect, radius=radius, outline=color, width=module_thickness)
+    if shape == "square":
+        draw.rectangle(rect, outline=color, width=module_thickness)
         return
-    draw.rectangle(rect, outline=color, width=module_thickness)
+
+    radius_factor = 0.16 if shape == "rounded" else 0.28
+    _draw_styled_rect(
+        draw=draw,
+        rect=rect,
+        corners=_shape_corners(shape, finder_position),
+        radius_factor=radius_factor,
+        outline=color,
+        width=module_thickness,
+    )
 
 
 def draw_eye_ball(
@@ -502,11 +649,88 @@ def draw_eye_ball(
     rect: tuple[int, int, int, int],
     shape: str,
     color: tuple[int, int, int],
+    finder_position: str,
 ) -> None:
     if shape == "circle":
         draw.ellipse(rect, fill=color)
         return
-    draw.rectangle(rect, fill=color)
+
+    if shape == "square":
+        draw.rectangle(rect, fill=color)
+        return
+
+    radius_factor = 0.3 if shape == "rounded" else 0.36
+    _draw_styled_rect(
+        draw=draw,
+        rect=rect,
+        corners=_shape_corners(shape, finder_position),
+        radius_factor=radius_factor,
+        fill=color,
+    )
+
+
+def _draw_styled_rect(
+    *,
+    draw: ImageDraw.ImageDraw,
+    rect: tuple[int, int, int, int],
+    corners: tuple[bool, bool, bool, bool] | None,
+    radius_factor: float,
+    fill: tuple[int, int, int] | None = None,
+    outline: tuple[int, int, int] | None = None,
+    width: int = 1,
+) -> None:
+    if corners is None:
+        if fill is not None and outline is not None:
+            draw.rectangle(rect, fill=fill, outline=outline, width=width)
+            return
+        if fill is not None:
+            draw.rectangle(rect, fill=fill)
+            return
+        draw.rectangle(rect, outline=outline, width=width)
+        return
+
+    radius = max(1, int(min(rect[2] - rect[0], rect[3] - rect[1]) * radius_factor))
+    draw.rounded_rectangle(
+        rect,
+        radius=radius,
+        fill=fill,
+        outline=outline,
+        width=width,
+        corners=corners,
+    )
+
+
+def _shape_corners(shape: str, finder_position: str) -> tuple[bool, bool, bool, bool] | None:
+    if shape == "rounded":
+        return True, True, True, True
+
+    if shape == "classy_rounded":
+        return _classy_rounded_corners(finder_position)
+
+    if shape == "classy":
+        return _classy_corners(finder_position)
+
+    return None
+
+
+def _classy_rounded_corners(finder_position: str) -> tuple[bool, bool, bool, bool]:
+    mapping = {
+        "top_left": (True, True, False, True),
+        "top_right": (True, True, True, False),
+        "bottom_left": (True, False, True, True),
+        "bottom_right": (False, True, True, True),
+    }
+    return mapping.get(finder_position, mapping["top_left"])
+
+
+def _classy_corners(finder_position: str) -> tuple[bool, bool, bool, bool]:
+    mapping = {
+        "top_left": (False, True, False, True),
+        "top_right": (True, False, True, False),
+        "bottom_left": (True, False, True, False),
+        "bottom_right": (False, True, False, True),
+    }
+    return mapping.get(finder_position, mapping["top_left"])
 
 # qr_preset_studio/infrastructure/rendering/geometry.py
 from __future__ import annotations
@@ -621,22 +845,36 @@ def render_preview(preset: Preset, zoom_percent: int = 100) -> Image.Image:
 # qr_preset_studio/infrastructure/rendering/qr_matrix.py
 from __future__ import annotations
 
-from typing import Iterable
-
 import qrcode
+from qrcode.exceptions import DataOverflowError
 
+from qr_preset_studio.domain.models.preset import Preset
 from qr_preset_studio.infrastructure.rendering.constants import FINDER_SIZE, QR_BORDER_MODULES
 
 
-def build_matrix(link: str) -> list[list[bool]]:
+_ERROR_CORRECTION_MAP = {
+    "L": qrcode.constants.ERROR_CORRECT_L,
+    "M": qrcode.constants.ERROR_CORRECT_M,
+    "Q": qrcode.constants.ERROR_CORRECT_Q,
+    "H": qrcode.constants.ERROR_CORRECT_H,
+}
+
+
+def build_matrix(preset: Preset) -> list[list[bool]]:
     qr = qrcode.QRCode(
-        version=None,
-        error_correction=qrcode.constants.ERROR_CORRECT_H,
+        version=preset.qr_version or None,
+        error_correction=_ERROR_CORRECTION_MAP[preset.qr_error_correction],
         box_size=1,
         border=QR_BORDER_MODULES,
+        mask_pattern=None if preset.qr_mask_pattern < 0 else preset.qr_mask_pattern,
     )
-    qr.add_data(link)
-    qr.make(fit=True)
+    qr.add_data(preset.link, optimize=preset.qr_optimize)
+
+    try:
+        qr.make(fit=preset.qr_version == 0)
+    except DataOverflowError as exc:
+        raise ValueError(_overflow_message(preset)) from exc
+
     return qr.get_matrix()
 
 
@@ -649,11 +887,21 @@ def finder_origins(active_modules: int) -> list[tuple[int, int]]:
     return [(0, 0), (end, 0), (0, end)]
 
 
-def in_finder_area(row: int, col: int, origins: Iterable[tuple[int, int]]) -> bool:
+def in_finder_area(row: int, col: int, origins) -> bool:
     for origin_col, origin_row in origins:
         if origin_col <= col < origin_col + FINDER_SIZE and origin_row <= row < origin_row + FINDER_SIZE:
             return True
     return False
+
+
+def _overflow_message(preset: Preset) -> str:
+    version_label = "auto" if preset.qr_version == 0 else str(preset.qr_version)
+    mask_label = "auto" if preset.qr_mask_pattern < 0 else str(preset.qr_mask_pattern)
+    return (
+        "Текущие параметры QR не помещают ссылку: "
+        f"version={version_label}, ecc={preset.qr_error_correction}, "
+        f"mask={mask_label}, optimize={preset.qr_optimize}."
+    )
 
 # qr_preset_studio/ui/__init__.py
 __all__ = []
@@ -715,6 +963,10 @@ class PresetEditor(QWidget):
             qr_scale_percent=self.content_panel.qr_scale_spin.value(),
             qr_offset_x=self.content_panel.qr_offset_x_spin.value(),
             qr_offset_y=self.content_panel.qr_offset_y_spin.value(),
+            qr_version=_parse_version(self.content_panel.qr_version_combo.currentText()),
+            qr_error_correction=self.content_panel.qr_error_correction_combo.currentText(),
+            qr_mask_pattern=_parse_mask(self.content_panel.qr_mask_pattern_combo.currentText()),
+            qr_optimize=self.content_panel.qr_optimize_spin.value(),
             body_shape=self.qr_style_panel.body_shape_combo.currentText(),
             eye_frame_shape=self.qr_style_panel.eye_frame_combo.currentText(),
             eye_ball_shape=self.qr_style_panel.eye_ball_combo.currentText(),
@@ -740,6 +992,10 @@ class PresetEditor(QWidget):
         self.content_panel.qr_scale_spin.setValue(preset.qr_scale_percent)
         self.content_panel.qr_offset_x_spin.setValue(preset.qr_offset_x)
         self.content_panel.qr_offset_y_spin.setValue(preset.qr_offset_y)
+        self.content_panel.qr_version_combo.setCurrentText(_version_text(preset.qr_version))
+        self.content_panel.qr_error_correction_combo.setCurrentText(preset.qr_error_correction)
+        self.content_panel.qr_mask_pattern_combo.setCurrentText(_mask_text(preset.qr_mask_pattern))
+        self.content_panel.qr_optimize_spin.setValue(preset.qr_optimize)
 
         self.qr_style_panel.body_shape_combo.setCurrentText(preset.body_shape)
         self.qr_style_panel.eye_frame_combo.setCurrentText(preset.eye_frame_shape)
@@ -747,14 +1003,7 @@ class PresetEditor(QWidget):
         self.qr_style_panel.qr_color_button.set_color(preset.qr_foreground_color)
         self.qr_style_panel.gradient_enabled_check.setChecked(preset.gradient_enabled)
         self.qr_style_panel.gradient_color_button.set_color(preset.gradient_color)
-        self.qr_style_panel.gradient_direction_combo.setCurrentText(preset.gradient_direction)
-
-        self.qr_card_panel.qr_background_enabled_check.setChecked(preset.qr_background_enabled)
-        self.qr_card_panel.qr_background_color_button.set_color(preset.qr_background_color)
-        self.qr_card_panel.qr_background_padding_spin.setValue(preset.qr_background_padding)
-        self.qr_card_panel.qr_background_radius_spin.setValue(preset.qr_background_radius)
-        self.qr_card_panel.qr_border_width_spin.setValue(preset.qr_border_width)
-        self.qr_card_panel.qr_border_color_button.set_color(preset.qr_border_color)
+        self.qr_style_panel.gradient_direction_combo.set
 
 # qr_preset_studio/ui/panels/__init__.py
 __all__ = []
@@ -880,7 +1129,13 @@ def _spin(minimum: int, maximum: int, suffix: str = "") -> QSpinBox:
 from __future__ import annotations
 
 from PySide6.QtCore import Signal
-from PySide6.QtWidgets import QFormLayout, QGroupBox, QLineEdit, QSpinBox
+from PySide6.QtWidgets import QComboBox, QFormLayout, QGroupBox, QLineEdit, QSpinBox
+
+from qr_preset_studio.domain.constants import (
+    QR_ERROR_CORRECTION_LEVELS,
+    QR_MASK_PATTERN_VALUES,
+    QR_VERSION_VALUES,
+)
 
 
 class ContentPanel(QGroupBox):
@@ -893,16 +1148,33 @@ class ContentPanel(QGroupBox):
 
         self.link_input = QLineEdit()
         self.link_input.setPlaceholderText("https://example.com")
+
+        self.qr_version_combo = _combo(QR_VERSION_VALUES)
+        self.qr_error_correction_combo = _combo(QR_ERROR_CORRECTION_LEVELS)
+        self.qr_mask_pattern_combo = _combo(QR_MASK_PATTERN_VALUES)
+        self.qr_optimize_spin = _spin(0, 100)
+
         self.qr_scale_spin = _spin(10, 90, " %")
         self.qr_offset_x_spin = _spin(-5000, 5000, " px")
         self.qr_offset_y_spin = _spin(-5000, 5000, " px")
 
+        self.qr_error_correction_combo.setCurrentText("H")
+        self.qr_optimize_spin.setValue(20)
+
         form.addRow("Ссылка", self.link_input)
+        form.addRow("Version", self.qr_version_combo)
+        form.addRow("ECC", self.qr_error_correction_combo)
+        form.addRow("Mask", self.qr_mask_pattern_combo)
+        form.addRow("Optimize", self.qr_optimize_spin)
         form.addRow("Размер QR", self.qr_scale_spin)
         form.addRow("Сдвиг X", self.qr_offset_x_spin)
         form.addRow("Сдвиг Y", self.qr_offset_y_spin)
 
         self.link_input.textChanged.connect(self.changed)
+        self.qr_version_combo.currentTextChanged.connect(self.changed)
+        self.qr_error_correction_combo.currentTextChanged.connect(self.changed)
+        self.qr_mask_pattern_combo.currentTextChanged.connect(self.changed)
+        self.qr_optimize_spin.valueChanged.connect(self.changed)
         self.qr_scale_spin.valueChanged.connect(self.changed)
         self.qr_offset_x_spin.valueChanged.connect(self.changed)
         self.qr_offset_y_spin.valueChanged.connect(self.changed)
@@ -915,6 +1187,12 @@ def _spin(minimum: int, maximum: int, suffix: str = "") -> QSpinBox:
     if suffix:
         spin.setSuffix(suffix)
     return spin
+
+
+def _combo(values: list[str]) -> QComboBox:
+    combo = QComboBox()
+    combo.addItems(values)
+    return combo
 
 # qr_preset_studio/ui/panels/preview_panel.py
 from __future__ import annotations
@@ -1036,7 +1314,7 @@ def _spin(minimum: int, maximum: int, suffix: str = "") -> QSpinBox:
 from __future__ import annotations
 
 from PySide6.QtCore import Signal
-from PySide6.QtWidgets import QCheckBox, QComboBox, QFormLayout, QGroupBox
+from PySide6.QtWidgets import QCheckBox, QComboBox, QFormLayout, QGroupBox, QSpinBox
 
 from qr_preset_studio.domain.constants import (
     BODY_SHAPES,
@@ -1058,12 +1336,14 @@ class QrStylePanel(QGroupBox):
         self.body_shape_combo = _combo(BODY_SHAPES)
         self.eye_frame_combo = _combo(EYE_FRAME_SHAPES)
         self.eye_ball_combo = _combo(EYE_BALL_SHAPES)
+        self.liquid_body_size_spin = _spin(10, 100, " %")
         self.qr_color_button = ColorButton("#0F172A", "Основной цвет QR")
         self.gradient_enabled_check = QCheckBox("Включить градиент")
         self.gradient_color_button = ColorButton("#2563EB", "Второй цвет градиента")
         self.gradient_direction_combo = _combo(GRADIENT_DIRECTIONS)
 
         form.addRow("Body shape", self.body_shape_combo)
+        form.addRow("Liquid size", self.liquid_body_size_spin)
         form.addRow("Eye frame", self.eye_frame_combo)
         form.addRow("Eye ball", self.eye_ball_combo)
         form.addRow("Цвет QR", self.qr_color_button)
@@ -1071,19 +1351,36 @@ class QrStylePanel(QGroupBox):
         form.addRow("Второй цвет", self.gradient_color_button)
         form.addRow("Направление", self.gradient_direction_combo)
 
+        self.body_shape_combo.currentTextChanged.connect(self._sync_liquid_enabled)
         self.body_shape_combo.currentTextChanged.connect(self.changed)
         self.eye_frame_combo.currentTextChanged.connect(self.changed)
         self.eye_ball_combo.currentTextChanged.connect(self.changed)
+        self.liquid_body_size_spin.valueChanged.connect(self.changed)
         self.gradient_enabled_check.toggled.connect(self.changed)
         self.gradient_direction_combo.currentTextChanged.connect(self.changed)
         self.qr_color_button.clicked.connect(self.changed)
         self.gradient_color_button.clicked.connect(self.changed)
+
+        self.liquid_body_size_spin.setValue(78)
+        self._sync_liquid_enabled(self.body_shape_combo.currentText())
+
+    def _sync_liquid_enabled(self, shape: str) -> None:
+        self.liquid_body_size_spin.setEnabled(shape == "liquid")
 
 
 def _combo(values: list[str]) -> QComboBox:
     combo = QComboBox()
     combo.addItems(values)
     return combo
+
+
+def _spin(minimum: int, maximum: int, suffix: str = "") -> QSpinBox:
+    spin = QSpinBox()
+    spin.setRange(minimum, maximum)
+    spin.setSingleStep(1)
+    if suffix:
+        spin.setSuffix(suffix)
+    return spin
 
 # qr_preset_studio/ui/widgets/__init__.py
 __all__ = []
