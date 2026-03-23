@@ -7,16 +7,18 @@ from qr_preset_studio.infrastructure.rendering.body_shapes import render_body
 from qr_preset_studio.infrastructure.rendering.canvas import build_canvas
 from qr_preset_studio.infrastructure.rendering.color_map import module_color
 from qr_preset_studio.infrastructure.rendering.constants import (
+    BASE_RENDER_DPI,
     FINDER_BALL_OFFSET,
     FINDER_BALL_SIZE,
     FINDER_SIZE,
+    MAX_QR_LAYER_SIDE,
     QR_BORDER_MODULES,
 )
 from qr_preset_studio.infrastructure.rendering.drawers import (
     draw_eye_ball,
     draw_eye_frame,
 )
-from qr_preset_studio.infrastructure.rendering.geometry import active_rect, build_qr_layout
+from qr_preset_studio.infrastructure.rendering.geometry import QrLayout, active_rect, build_qr_layout
 from qr_preset_studio.infrastructure.rendering.qr_matrix import (
     active_module_count,
     build_matrix,
@@ -37,15 +39,54 @@ def render_preset(preset: Preset) -> Image.Image:
     origins = finder_origins(active_modules)
     body_map = _build_body_map(matrix, matrix_size, origins)
 
-    _draw_card(canvas, preset, layout)
-    render_body(canvas, preset, layout, body_map)
-    _draw_finders(canvas, preset, layout, origins)
+    _render_qr_layer(canvas, preset, layout, body_map, origins)
     return canvas
 
 
-def _draw_card(canvas: Image.Image, preset: Preset, layout) -> None:
+def _render_qr_layer(
+    canvas: Image.Image,
+    preset: Preset,
+    layout: QrLayout,
+    body_map: list[list[bool]],
+    origins,
+) -> None:
+    card_left, card_top, card_right, card_bottom = layout.card_rect
+    card_width = max(1, card_right - card_left)
+    card_height = max(1, card_bottom - card_top)
+
+    render_scale = _qr_render_scale(preset.qr_dpi, card_width, card_height)
+    layer_size = (
+        max(1, int(round(card_width * render_scale))),
+        max(1, int(round(card_height * render_scale))),
+    )
+    layer = Image.new("RGBA", layer_size, (0, 0, 0, 0))
+
+    local_layout = QrLayout(
+        active_x=max(0, int(round((layout.active_x - card_left) * render_scale))),
+        active_y=max(0, int(round((layout.active_y - card_top) * render_scale))),
+        active_qr_size=max(1, int(round(layout.active_qr_size * render_scale))),
+        active_modules=layout.active_modules,
+        padding=max(0, int(round(layout.padding * render_scale))),
+        border_width=max(0, int(round(layout.border_width * render_scale))),
+        corner_radius=max(0, int(round(layout.corner_radius * render_scale))),
+    )
+
+    _draw_card(layer, preset, local_layout)
+    render_body(layer, preset, local_layout, body_map, render_scale=render_scale)
+    _draw_finders(layer, preset, local_layout, origins)
+
+    if layer.size != (card_width, card_height):
+        layer = layer.resize((card_width, card_height), Image.Resampling.LANCZOS)
+
+    visible_layer, dest = _visible_layer(layer, canvas.size, (card_left, card_top))
+    if visible_layer is not None:
+        canvas.alpha_composite(visible_layer, dest)
+
+
+def _draw_card(canvas: Image.Image, preset: Preset, layout: QrLayout) -> None:
     if not preset.qr_background_enabled:
         return
+
     ImageDraw.Draw(canvas).rounded_rectangle(
         layout.card_rect,
         radius=layout.corner_radius,
@@ -77,7 +118,7 @@ def _build_body_map(matrix, matrix_size: int, origins) -> list[list[bool]]:
     return body_map
 
 
-def _draw_finders(canvas: Image.Image, preset: Preset, layout, origins) -> None:
+def _draw_finders(canvas: Image.Image, preset: Preset, layout: QrLayout, origins) -> None:
     draw = ImageDraw.Draw(canvas)
     for origin_col, origin_row in origins:
         finder_position = _finder_position(origin_col, origin_row, layout.active_modules)
@@ -141,3 +182,35 @@ def _finder_position(origin_col: int, origin_row: int, active_modules: int) -> s
     if origin_row == last_origin and origin_col == 0:
         return "bottom_left"
     return "bottom_right"
+
+
+def _qr_render_scale(qr_dpi: int, card_width: int, card_height: int) -> float:
+    requested_scale = max(1.0, qr_dpi / BASE_RENDER_DPI)
+    max_card_side = max(1, card_width, card_height)
+    memory_cap_scale = max(1.0, MAX_QR_LAYER_SIDE / max_card_side)
+    return max(1.0, min(requested_scale, memory_cap_scale))
+
+
+def _visible_layer(
+    layer: Image.Image,
+    canvas_size: tuple[int, int],
+    dest: tuple[int, int],
+) -> tuple[Image.Image | None, tuple[int, int]]:
+    dest_x, dest_y = dest
+    layer_width, layer_height = layer.size
+
+    visible_left = max(0, dest_x)
+    visible_top = max(0, dest_y)
+    visible_right = min(canvas_size[0], dest_x + layer_width)
+    visible_bottom = min(canvas_size[1], dest_y + layer_height)
+
+    if visible_left >= visible_right or visible_top >= visible_bottom:
+        return None, (0, 0)
+
+    crop_box = (
+        visible_left - dest_x,
+        visible_top - dest_y,
+        visible_right - dest_x,
+        visible_bottom - dest_y,
+    )
+    return layer.crop(crop_box), (visible_left, visible_top)

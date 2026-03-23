@@ -10,6 +10,7 @@ from qr_preset_studio.ui.panels.canvas_panel import CanvasPanel
 from qr_preset_studio.ui.panels.content_panel import ContentPanel
 from qr_preset_studio.ui.panels.qr_card_panel import QrCardPanel
 from qr_preset_studio.ui.panels.qr_style_panel import QrStylePanel
+from qr_preset_studio.ui.widgets.lockable_field import LockableField
 
 
 class PresetEditor(QWidget):
@@ -55,8 +56,9 @@ class PresetEditor(QWidget):
             qr_error_correction=self.content_panel.qr_error_correction_combo.currentText(),
             qr_mask_pattern=_parse_mask(self.content_panel.qr_mask_pattern_combo.currentText()),
             qr_optimize=self.content_panel.qr_optimize_spin.value(),
+            qr_dpi=self.content_panel.qr_dpi_spin.value(),
             body_shape=self.qr_style_panel.body_shape_combo.currentText(),
-            rounded_body_strength_percent=self.qr_style_panel.rounded_body_strength_spin.value(),
+            rounded_body_radius_px=self.qr_style_panel.rounded_body_radius_spin.value(),
             eye_frame_shape=self.qr_style_panel.eye_frame_combo.currentText(),
             eye_ball_shape=self.qr_style_panel.eye_ball_combo.currentText(),
             qr_foreground_color=self.qr_style_panel.qr_color_button.color(),
@@ -69,6 +71,7 @@ class PresetEditor(QWidget):
             qr_background_radius=self.qr_card_panel.qr_background_radius_spin.value(),
             qr_border_width=self.qr_card_panel.qr_border_width_spin.value(),
             qr_border_color=self.qr_card_panel.qr_border_color_button.color(),
+            locked_fields=self._collect_locked_fields(),
         )
 
     def set_preset(self, preset: Preset) -> None:
@@ -85,9 +88,10 @@ class PresetEditor(QWidget):
         self.content_panel.qr_error_correction_combo.setCurrentText(preset.qr_error_correction)
         self.content_panel.qr_mask_pattern_combo.setCurrentText(_mask_text(preset.qr_mask_pattern))
         self.content_panel.qr_optimize_spin.setValue(preset.qr_optimize)
+        self.content_panel.qr_dpi_spin.setValue(preset.qr_dpi)
 
         self.qr_style_panel.body_shape_combo.setCurrentText(preset.body_shape)
-        self.qr_style_panel.rounded_body_strength_spin.setValue(preset.rounded_body_strength_percent)
+        self.qr_style_panel.rounded_body_radius_spin.setValue(preset.rounded_body_radius_px)
         self.qr_style_panel.eye_frame_combo.setCurrentText(preset.eye_frame_shape)
         self.qr_style_panel.eye_ball_combo.setCurrentText(preset.eye_ball_shape)
         self.qr_style_panel.qr_color_button.set_color(preset.qr_foreground_color)
@@ -102,6 +106,50 @@ class PresetEditor(QWidget):
         self.qr_card_panel.qr_background_radius_spin.setValue(preset.qr_background_radius)
         self.qr_card_panel.qr_border_width_spin.setValue(preset.qr_border_width)
         self.qr_card_panel.qr_border_color_button.set_color(preset.qr_border_color)
+
+        self._apply_locked_fields(preset.locked_fields)
+
+    def _collect_locked_fields(self) -> dict[str, bool]:
+        return {
+            key: field.is_locked()
+            for key, field in self._lock_fields().items()
+            if field.is_locked()
+        }
+
+    def _apply_locked_fields(self, locked_fields: dict[str, bool]) -> None:
+        for key, field in self._lock_fields().items():
+            field.set_locked(bool(locked_fields.get(key, False)))
+
+    def _lock_fields(self) -> dict[str, LockableField]:
+        return {
+            "link": self.content_panel.link_field,
+            "qr_version": self.content_panel.qr_version_field,
+            "qr_error_correction": self.content_panel.qr_error_correction_field,
+            "qr_mask_pattern": self.content_panel.qr_mask_pattern_field,
+            "qr_optimize": self.content_panel.qr_optimize_field,
+            "qr_dpi": self.content_panel.qr_dpi_field,
+            "qr_scale_percent": self.content_panel.qr_scale_field,
+            "qr_offset_x": self.content_panel.qr_offset_x_field,
+            "qr_offset_y": self.content_panel.qr_offset_y_field,
+            "canvas_width": self.canvas_panel.canvas_width_field,
+            "canvas_height": self.canvas_panel.canvas_height_field,
+            "canvas_background_color": self.canvas_panel.canvas_bg_color_field,
+            "background_image_path": self.background_panel.background_field,
+            "body_shape": self.qr_style_panel.body_shape_field,
+            "rounded_body_radius_px": self.qr_style_panel.rounded_body_radius_field,
+            "eye_frame_shape": self.qr_style_panel.eye_frame_field,
+            "eye_ball_shape": self.qr_style_panel.eye_ball_field,
+            "qr_foreground_color": self.qr_style_panel.qr_color_field,
+            "gradient_enabled": self.qr_style_panel.gradient_enabled_field,
+            "gradient_color": self.qr_style_panel.gradient_color_field,
+            "gradient_direction": self.qr_style_panel.gradient_direction_field,
+            "qr_background_enabled": self.qr_card_panel.qr_background_enabled_field,
+            "qr_background_color": self.qr_card_panel.qr_background_color_field,
+            "qr_background_padding": self.qr_card_panel.qr_background_padding_field,
+            "qr_background_radius": self.qr_card_panel.qr_background_radius_field,
+            "qr_border_width": self.qr_card_panel.qr_border_width_field,
+            "qr_border_color": self.qr_card_panel.qr_border_color_field,
+        }
 
 
 def _parse_version(value: str) -> int:

@@ -37,6 +37,7 @@ class PreviewPanel(QWidget):
         self.preview_label = QLabel()
         self.preview_label.setAlignment(Qt.AlignCenter)
         self.preview_label.setMinimumSize(700, 700)
+        self.preview_label.setWordWrap(True)
         self.preview_label.setStyleSheet(
             "QLabel { background: #E2E8F0; border: 1px solid #CBD5E1; border-radius: 12px; }"
         )
@@ -60,8 +61,13 @@ class PreviewPanel(QWidget):
 
     def set_preview_image(self, image) -> None:
         pixmap = QPixmap.fromImage(ImageQt(image))
+        self.preview_label.clear()
         self.preview_label.setPixmap(pixmap)
         self.preview_label.adjustSize()
+
+    def set_error_text(self, text: str) -> None:
+        self.preview_label.clear()
+        self.preview_label.setText(text)
 
     def _sync_zoom_label(self, value: int) -> None:
         self.zoom_value_label.setText(f"{value}%")

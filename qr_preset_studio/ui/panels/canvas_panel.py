@@ -19,9 +19,13 @@ class CanvasPanel(QGroupBox):
         self.canvas_height_spin = _spin(256, 8000, " px")
         self.canvas_bg_color_button = ColorButton("#F3F4F6", "Цвет фона")
 
-        form.addRow("Ширина", LockableField(self.canvas_width_spin))
-        form.addRow("Высота", LockableField(self.canvas_height_spin))
-        form.addRow("Цвет фона", LockableField(self.canvas_bg_color_button))
+        self.canvas_width_field = LockableField(self.canvas_width_spin)
+        self.canvas_height_field = LockableField(self.canvas_height_spin)
+        self.canvas_bg_color_field = LockableField(self.canvas_bg_color_button)
+
+        form.addRow("Ширина", self.canvas_width_field)
+        form.addRow("Высота", self.canvas_height_field)
+        form.addRow("Цвет фона", self.canvas_bg_color_field)
 
         self.canvas_width_spin.valueChanged.connect(self.changed)
         self.canvas_height_spin.valueChanged.connect(self.changed)

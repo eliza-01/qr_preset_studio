@@ -2,6 +2,12 @@
 
 Локальное desktop-приложение на Python для генерации QR и сохранения пресетов.
 
+# qr-monkey preset
+# qr_version: int = 3
+# qr_error_correction: str = "M"
+# qr_mask_pattern: int = 6
+# qr_optimize: int = 20
+
 ## Что есть в MVP
 
 - настройка итогового размера изображения

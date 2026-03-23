@@ -37,8 +37,8 @@ def active_module_count(matrix_size: int) -> int:
     return max(1, matrix_size - (QR_BORDER_MODULES * 2))
 
 
-def finder_origins(active_modules: int) -> list[tuple[int, int]]:
-    end = active_modules - FINDER_SIZE
+def finder_origins(active_module_count_value: int) -> list[tuple[int, int]]:
+    end = active_module_count_value - FINDER_SIZE
     return [(0, 0), (end, 0), (0, end)]
 
 
@@ -52,8 +52,19 @@ def in_finder_area(row: int, col: int, origins) -> bool:
 def _overflow_message(preset: Preset) -> str:
     version_label = "auto" if preset.qr_version == 0 else str(preset.qr_version)
     mask_label = "auto" if preset.qr_mask_pattern < 0 else str(preset.qr_mask_pattern)
+
+    hints: list[str] = []
+    if preset.qr_version != 0:
+        hints.append("поставь Version=auto или увеличь version")
+    if preset.qr_error_correction in {"Q", "H"}:
+        hints.append("снизь ECC до M или L")
+    if preset.qr_mask_pattern >= 0:
+        hints.append("поставь Mask=auto")
+
+    hint_text = f" Что можно сделать: {'; '.join(hints)}." if hints else ""
     return (
         "Текущие параметры QR не помещают ссылку: "
         f"version={version_label}, ecc={preset.qr_error_correction}, "
-        f"mask={mask_label}, optimize={preset.qr_optimize}."
+        f"mask={mask_label}, optimize={preset.qr_optimize}, "
+        f"символов={len(preset.link.strip())}.{hint_text}"
     )

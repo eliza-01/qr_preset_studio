@@ -91,8 +91,22 @@ class MainWindow(QMainWindow):
 
     def _refresh_preview(self) -> None:
         self._preset = self.editor.to_preset()
-        image = self._render_service.render_preview(self._preset, self.preview_panel.zoom_percent())
+
+        try:
+            image = self._render_service.render_preview(self._preset, self.preview_panel.zoom_percent())
+        except ValueError as exc:
+            error_text = str(exc)
+            self.preview_panel.set_error_text(error_text)
+            self.statusBar().showMessage(error_text, 7000)
+            return
+        except Exception as exc:
+            error_text = f"Ошибка рендера превью: {exc}"
+            self.preview_panel.set_error_text(error_text)
+            self.statusBar().showMessage(error_text, 7000)
+            return
+
         self.preview_panel.set_preview_image(image)
+        self.statusBar().showMessage("Готово")
 
     def _save_preset(self) -> None:
         preset = self.editor.to_preset()
@@ -105,8 +119,13 @@ class MainWindow(QMainWindow):
         if not path:
             return
 
-        self._preset_service.save(path, preset)
-        self._app_state_service.set_last_preset_path(path)
+        try:
+            self._preset_service.save(path, preset)
+            self._app_state_service.set_last_preset_path(path)
+        except Exception as exc:
+            QMessageBox.critical(self, "Ошибка сохранения", str(exc))
+            return
+
         self.statusBar().showMessage(f"Пресет сохранён: {path}", 4000)
 
     def _load_preset(self) -> None:
@@ -119,7 +138,12 @@ class MainWindow(QMainWindow):
         if not path:
             return
 
-        preset = self._preset_service.load(path)
+        try:
+            preset = self._preset_service.load(path)
+        except Exception as exc:
+            QMessageBox.critical(self, "Ошибка загрузки", str(exc))
+            return
+
         self._app_state_service.set_last_preset_path(path)
         self.editor.set_preset(preset)
         self._refresh_preview()
@@ -146,8 +170,16 @@ class MainWindow(QMainWindow):
         if not path:
             return
 
-        image = self._render_service.render_export(preset)
-        image.save(path, format="PNG")
+        try:
+            image = self._render_service.render_export(preset)
+            image.save(path, format="PNG", dpi=(preset.qr_dpi, preset.qr_dpi))
+        except ValueError as exc:
+            QMessageBox.warning(self, "QR не помещается", str(exc))
+            return
+        except Exception as exc:
+            QMessageBox.critical(self, "Ошибка экспорта", str(exc))
+            return
+
         self.statusBar().showMessage(f"PNG сохранён: {path}", 5000)
 
     def _choose_background(self) -> None:
