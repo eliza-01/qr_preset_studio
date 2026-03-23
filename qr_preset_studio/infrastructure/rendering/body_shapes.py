@@ -62,7 +62,9 @@ def _render_connected_rounded_body(
     draw = ImageDraw.Draw(layer)
 
     module_pitch = layout.active_qr_size / max(1, layout.active_modules)
-    radius = max(1, int(round((module_pitch * BODY_OVERSAMPLE) / 2)))
+    strength = max(10, min(100, int(preset.rounded_body_strength_percent)))
+    diameter = max(1, int(round(module_pitch * (strength / 100) * BODY_OVERSAMPLE)))
+    radius = max(1, diameter // 2)
 
     for row, line in enumerate(body_map):
         for col, is_dark in enumerate(line):

@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from qr_preset_studio.application.services.app_state_service import AppStateService
 from qr_preset_studio.application.services.preset_service import PresetService
 from qr_preset_studio.application.services.render_service import RenderService
 from qr_preset_studio.domain.models.preset import Preset
@@ -21,10 +22,16 @@ from qr_preset_studio.ui.panels.preview_panel import PreviewPanel
 
 
 class MainWindow(QMainWindow):
-    def __init__(self, preset_service: PresetService, render_service: RenderService) -> None:
+    def __init__(
+        self,
+        preset_service: PresetService,
+        render_service: RenderService,
+        app_state_service: AppStateService,
+    ) -> None:
         super().__init__()
         self._preset_service = preset_service
         self._render_service = render_service
+        self._app_state_service = app_state_service
         self._preset = Preset()
 
         self.setWindowTitle("QR Preset Studio")
@@ -32,7 +39,7 @@ class MainWindow(QMainWindow):
 
         self._build_ui()
         self._bind_events()
-        self.editor.set_preset(self._preset)
+        self._restore_initial_preset()
         self._refresh_preview()
         self.statusBar().showMessage("Готово")
 
@@ -66,6 +73,22 @@ class MainWindow(QMainWindow):
         self.editor.actions_panel.export_requested.connect(self._export_png)
         self.preview_panel.zoom_changed.connect(self._refresh_preview)
 
+    def _restore_initial_preset(self) -> None:
+        last_path = self._app_state_service.last_preset_path()
+        if last_path is None:
+            self.editor.set_preset(self._preset)
+            return
+
+        try:
+            preset = self._preset_service.load(last_path)
+        except Exception:
+            self._app_state_service.clear_last_preset_path()
+            self.editor.set_preset(self._preset)
+            return
+
+        self._preset = preset
+        self.editor.set_preset(preset)
+
     def _refresh_preview(self) -> None:
         self._preset = self.editor.to_preset()
         image = self._render_service.render_preview(self._preset, self.preview_panel.zoom_percent())
@@ -81,7 +104,9 @@ class MainWindow(QMainWindow):
         )
         if not path:
             return
+
         self._preset_service.save(path, preset)
+        self._app_state_service.set_last_preset_path(path)
         self.statusBar().showMessage(f"Пресет сохранён: {path}", 4000)
 
     def _load_preset(self) -> None:
@@ -95,6 +120,7 @@ class MainWindow(QMainWindow):
             return
 
         preset = self._preset_service.load(path)
+        self._app_state_service.set_last_preset_path(path)
         self.editor.set_preset(preset)
         self._refresh_preview()
 

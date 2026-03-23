@@ -11,6 +11,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from qr_preset_studio.ui.widgets.lockable_field import LockableField
+
 
 class BackgroundPanel(QGroupBox):
     changed = Signal()
@@ -38,7 +40,8 @@ class BackgroundPanel(QGroupBox):
         bg_layout.addWidget(self.background_path_input)
         bg_layout.addLayout(buttons)
 
-        form.addRow("Изображение", background_widget)
+        self.background_field = LockableField(background_widget)
+        form.addRow("Изображение", self.background_field)
 
         self.browse_button.clicked.connect(self.browse_requested)
         self.clear_button.clicked.connect(self.clear_requested)

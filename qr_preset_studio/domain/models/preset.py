@@ -20,12 +20,6 @@ class Preset:
     canvas_background_color: str = "#F3F4F6"
     background_image_path: str = ""
 
-    # qr-monkey preset
-    # qr_version: int = 3
-    # qr_error_correction: str = "M"
-    # qr_mask_pattern: int = 6
-    # qr_optimize: int = 20
-
     qr_scale_percent: int = 42
     qr_offset_x: int = 0
     qr_offset_y: int = 0
@@ -35,6 +29,7 @@ class Preset:
     qr_optimize: int = 20
 
     body_shape: str = "square"
+    rounded_body_strength_percent: int = 100
     eye_frame_shape: str = "square"
     eye_ball_shape: str = "square"
 
@@ -66,6 +61,7 @@ class Preset:
         preset.qr_version = _clamp_int(preset.qr_version, 0, 40, 0)
         preset.qr_mask_pattern = _clamp_int(preset.qr_mask_pattern, -1, 7, -1)
         preset.qr_optimize = _clamp_int(preset.qr_optimize, 0, 100, 20)
+        preset.rounded_body_strength_percent = _clamp_int(preset.rounded_body_strength_percent, 10, 100, 100)
         return preset
 
     def scaled_copy(self, factor: float) -> "Preset":
@@ -84,6 +80,7 @@ class Preset:
             qr_mask_pattern=self.qr_mask_pattern,
             qr_optimize=self.qr_optimize,
             body_shape=self.body_shape,
+            rounded_body_strength_percent=self.rounded_body_strength_percent,
             eye_frame_shape=self.eye_frame_shape,
             eye_ball_shape=self.eye_ball_shape,
             qr_foreground_color=self.qr_foreground_color,

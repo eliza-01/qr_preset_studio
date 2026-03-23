@@ -4,6 +4,7 @@ from PySide6.QtCore import Signal
 from PySide6.QtWidgets import QCheckBox, QFormLayout, QGroupBox, QSpinBox
 
 from qr_preset_studio.ui.widgets.color_button import ColorButton
+from qr_preset_studio.ui.widgets.lockable_field import LockableField
 
 
 class QrCardPanel(QGroupBox):
@@ -21,12 +22,12 @@ class QrCardPanel(QGroupBox):
         self.qr_border_width_spin = _spin(0, 50, " px")
         self.qr_border_color_button = ColorButton("#CBD5E1", "Цвет границы")
 
-        form.addRow("Показ", self.qr_background_enabled_check)
-        form.addRow("Цвет", self.qr_background_color_button)
-        form.addRow("Отступы", self.qr_background_padding_spin)
-        form.addRow("Скругление", self.qr_background_radius_spin)
-        form.addRow("Толщина границы", self.qr_border_width_spin)
-        form.addRow("Цвет границы", self.qr_border_color_button)
+        form.addRow("Показ", LockableField(self.qr_background_enabled_check))
+        form.addRow("Цвет", LockableField(self.qr_background_color_button))
+        form.addRow("Отступы", LockableField(self.qr_background_padding_spin))
+        form.addRow("Скругление", LockableField(self.qr_background_radius_spin))
+        form.addRow("Толщина границы", LockableField(self.qr_border_width_spin))
+        form.addRow("Цвет границы", LockableField(self.qr_border_color_button))
 
         self.qr_background_enabled_check.toggled.connect(self.changed)
         self.qr_background_padding_spin.valueChanged.connect(self.changed)

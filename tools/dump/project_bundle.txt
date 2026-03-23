@@ -9,6 +9,20 @@ __all__ = []
 # qr_preset_studio/application/ports/__init__.py
 __all__ = []
 
+# qr_preset_studio/application/ports/app_state_repository.py
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Protocol
+
+from qr_preset_studio.domain.models.app_state import AppState
+
+
+class AppStateRepository(Protocol):
+    def save(self, path: str | Path, state: AppState) -> None: ...
+
+    def load(self, path: str | Path) -> AppState: ...
+
 # qr_preset_studio/application/ports/preset_repository.py
 from __future__ import annotations
 
@@ -25,6 +39,33 @@ class PresetRepository(Protocol):
 
 # qr_preset_studio/application/services/__init__.py
 __all__ = []
+
+# qr_preset_studio/application/services/app_state_service.py
+from __future__ import annotations
+
+from pathlib import Path
+
+from qr_preset_studio.application.ports.app_state_repository import AppStateRepository
+from qr_preset_studio.domain.models.app_state import AppState
+
+
+class AppStateService:
+    def __init__(self, repository: AppStateRepository, state_file: Path) -> None:
+        self._repository = repository
+        self._state_file = state_file
+
+    def last_preset_path(self) -> Path | None:
+        raw_path = self._repository.load(self._state_file).last_preset_path.strip()
+        if not raw_path:
+            return None
+        return Path(raw_path).expanduser()
+
+    def set_last_preset_path(self, path: str | Path) -> None:
+        normalized = str(Path(path).expanduser())
+        self._repository.save(self._state_file, AppState(last_preset_path=normalized))
+
+    def clear_last_preset_path(self) -> None:
+        self._repository.save(self._state_file, AppState())
 
 # qr_preset_studio/application/services/preset_service.py
 from __future__ import annotations
@@ -72,9 +113,11 @@ from __future__ import annotations
 
 from PySide6.QtWidgets import QApplication
 
+from qr_preset_studio.application.services.app_state_service import AppStateService
 from qr_preset_studio.application.services.preset_service import PresetService
 from qr_preset_studio.application.services.render_service import RenderService
 from qr_preset_studio.infrastructure.paths import AppPaths
+from qr_preset_studio.infrastructure.persistence.json_app_state_repository import JsonAppStateRepository
 from qr_preset_studio.infrastructure.persistence.json_preset_repository import JsonPresetRepository
 from qr_preset_studio.ui.windows.main_window import MainWindow
 
@@ -84,13 +127,17 @@ def run() -> int:
     app.setApplicationName("QR Preset Studio")
 
     paths = AppPaths.default()
-    repository = JsonPresetRepository()
-    preset_service = PresetService(repository=repository, presets_dir=paths.presets_dir)
+    preset_repository = JsonPresetRepository()
+    app_state_repository = JsonAppStateRepository()
+
+    preset_service = PresetService(repository=preset_repository, presets_dir=paths.presets_dir)
+    app_state_service = AppStateService(repository=app_state_repository, state_file=paths.app_state_file)
     render_service = RenderService()
 
     window = MainWindow(
         preset_service=preset_service,
         render_service=render_service,
+        app_state_service=app_state_service,
     )
     window.show()
     return app.exec()
@@ -110,6 +157,25 @@ QR_MASK_PATTERN_VALUES = ["auto"] + [str(index) for index in range(8)]
 
 # qr_preset_studio/domain/models/__init__.py
 __all__ = []
+
+# qr_preset_studio/domain/models/app_state.py
+from __future__ import annotations
+
+from dataclasses import asdict, dataclass
+from typing import Any
+
+
+@dataclass(slots=True)
+class AppState:
+    last_preset_path: str = ""
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, raw: dict[str, Any]) -> "AppState":
+        value = raw.get("last_preset_path", "")
+        return cls(last_preset_path=value if isinstance(value, str) else "")
 
 # qr_preset_studio/domain/models/preset.py
 from __future__ import annotations
@@ -134,12 +200,6 @@ class Preset:
     canvas_background_color: str = "#F3F4F6"
     background_image_path: str = ""
 
-    # qr-monkey preset
-    # qr_version: int = 3
-    # qr_error_correction: str = "M"
-    # qr_mask_pattern: int = 6
-    # qr_optimize: int = 20
-
     qr_scale_percent: int = 42
     qr_offset_x: int = 0
     qr_offset_y: int = 0
@@ -149,6 +209,7 @@ class Preset:
     qr_optimize: int = 20
 
     body_shape: str = "square"
+    rounded_body_strength_percent: int = 100
     eye_frame_shape: str = "square"
     eye_ball_shape: str = "square"
 
@@ -180,6 +241,7 @@ class Preset:
         preset.qr_version = _clamp_int(preset.qr_version, 0, 40, 0)
         preset.qr_mask_pattern = _clamp_int(preset.qr_mask_pattern, -1, 7, -1)
         preset.qr_optimize = _clamp_int(preset.qr_optimize, 0, 100, 20)
+        preset.rounded_body_strength_percent = _clamp_int(preset.rounded_body_strength_percent, 10, 100, 100)
         return preset
 
     def scaled_copy(self, factor: float) -> "Preset":
@@ -198,6 +260,7 @@ class Preset:
             qr_mask_pattern=self.qr_mask_pattern,
             qr_optimize=self.qr_optimize,
             body_shape=self.body_shape,
+            rounded_body_strength_percent=self.rounded_body_strength_percent,
             eye_frame_shape=self.eye_frame_shape,
             eye_ball_shape=self.eye_ball_shape,
             qr_foreground_color=self.qr_foreground_color,
@@ -264,6 +327,7 @@ class AppPaths:
     presets_dir: Path
     database_dir: Path
     database_file: Path
+    app_state_file: Path
 
     @classmethod
     def default(cls) -> "AppPaths":
@@ -271,6 +335,7 @@ class AppPaths:
         presets_dir = root_dir / "presets"
         database_dir = root_dir / "database"
         database_file = database_dir / "qr_preset_studio.sqlite3"
+        app_state_file = root_dir / "app_state.json"
 
         presets_dir.mkdir(parents=True, exist_ok=True)
         database_dir.mkdir(parents=True, exist_ok=True)
@@ -280,10 +345,41 @@ class AppPaths:
             presets_dir=presets_dir,
             database_dir=database_dir,
             database_file=database_file,
+            app_state_file=app_state_file,
         )
 
 # qr_preset_studio/infrastructure/persistence/__init__.py
 __all__ = []
+
+# qr_preset_studio/infrastructure/persistence/json_app_state_repository.py
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+from qr_preset_studio.domain.models.app_state import AppState
+
+
+class JsonAppStateRepository:
+    def save(self, path: str | Path, state: AppState) -> None:
+        target = Path(path)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(json.dumps(state.to_dict(), ensure_ascii=False, indent=2), encoding="utf-8")
+
+    def load(self, path: str | Path) -> AppState:
+        source = Path(path)
+        if not source.is_file():
+            return AppState()
+
+        try:
+            raw = json.loads(source.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return AppState()
+
+        if not isinstance(raw, dict):
+            return AppState()
+
+        return AppState.from_dict(raw)
 
 # qr_preset_studio/infrastructure/persistence/json_preset_repository.py
 from __future__ import annotations
@@ -315,26 +411,51 @@ from PIL import Image, ImageDraw
 
 from qr_preset_studio.domain.models.preset import Preset
 from qr_preset_studio.infrastructure.rendering.color_map import module_color
-from qr_preset_studio.infrastructure.rendering.geometry import grid_edge
+from qr_preset_studio.infrastructure.rendering.geometry import active_rect, grid_edge
 
 
-LIQUID_OVERSAMPLE = 4
+BODY_OVERSAMPLE = 6
 
 
-def draw_body_module(
-    draw: ImageDraw.ImageDraw,
-    rect: tuple[int, int, int, int],
-    color: tuple[int, int, int],
-    shape: str,
+def render_body(
+    canvas: Image.Image,
+    preset: Preset,
+    layout,
+    body_map: list[list[bool]],
 ) -> None:
-    if shape == "rounded":
-        radius = max(1, int(min(rect[2] - rect[0], rect[3] - rect[1]) * 0.3))
-        draw.rounded_rectangle(rect, radius=radius, fill=color)
+    if preset.body_shape == "rounded":
+        _render_connected_rounded_body(canvas, preset, layout, body_map)
         return
-    draw.rectangle(rect, fill=color)
+
+    _render_square_body(canvas, preset, layout, body_map)
 
 
-def render_liquid_body(
+def _render_square_body(
+    canvas: Image.Image,
+    preset: Preset,
+    layout,
+    body_map: list[list[bool]],
+) -> None:
+    draw = ImageDraw.Draw(canvas)
+
+    for row, line in enumerate(body_map):
+        for col, is_dark in enumerate(line):
+            if not is_dark:
+                continue
+
+            rect = active_rect(
+                active_x=layout.active_x,
+                active_y=layout.active_y,
+                active_col=col,
+                active_row=row,
+                span=1,
+                active_modules=layout.active_modules,
+                active_qr_size=layout.active_qr_size,
+            )
+            draw.rectangle(rect, fill=module_color(col, row, layout.active_modules, preset))
+
+
+def _render_connected_rounded_body(
     canvas: Image.Image,
     preset: Preset,
     layout,
@@ -342,15 +463,14 @@ def render_liquid_body(
 ) -> None:
     layer = Image.new(
         "RGBA",
-        (canvas.width * LIQUID_OVERSAMPLE, canvas.height * LIQUID_OVERSAMPLE),
+        (canvas.width * BODY_OVERSAMPLE, canvas.height * BODY_OVERSAMPLE),
         (0, 0, 0, 0),
     )
     draw = ImageDraw.Draw(layer)
+
     module_pitch = layout.active_qr_size / max(1, layout.active_modules)
-    diameter = max(
-        1,
-        int(round(module_pitch * (preset.liquid_body_size_percent / 100) * LIQUID_OVERSAMPLE)),
-    )
+    strength = max(10, min(100, int(preset.rounded_body_strength_percent)))
+    diameter = max(1, int(round(module_pitch * (strength / 100) * BODY_OVERSAMPLE)))
     radius = max(1, diameter // 2)
 
     for row, line in enumerate(body_map):
@@ -359,16 +479,13 @@ def render_liquid_body(
                 continue
 
             center_x, center_y = _scaled_center(layout, col, row)
-            color = (*module_color(col, row, layout.active_modules, preset), 255)
-
-            draw.ellipse(_ellipse_rect(center_x, center_y, radius), fill=color)
 
             if _has_right(body_map, row, col):
                 right_x, _ = _scaled_center(layout, col + 1, row)
                 draw.rounded_rectangle(
                     (center_x - radius, center_y - radius, right_x + radius, center_y + radius),
                     radius=radius,
-                    fill=color,
+                    fill=_rgba(module_color(col + 0.5, row, layout.active_modules, preset)),
                 )
 
             if _has_down(body_map, row, col):
@@ -376,8 +493,19 @@ def render_liquid_body(
                 draw.rounded_rectangle(
                     (center_x - radius, center_y - radius, center_x + radius, down_y + radius),
                     radius=radius,
-                    fill=color,
+                    fill=_rgba(module_color(col, row + 0.5, layout.active_modules, preset)),
                 )
+
+    for row, line in enumerate(body_map):
+        for col, is_dark in enumerate(line):
+            if not is_dark:
+                continue
+
+            center_x, center_y = _scaled_center(layout, col, row)
+            draw.ellipse(
+                _ellipse_rect(center_x, center_y, radius),
+                fill=_rgba(module_color(col, row, layout.active_modules, preset)),
+            )
 
     layer = layer.resize(canvas.size, Image.Resampling.LANCZOS)
     canvas.alpha_composite(layer)
@@ -386,11 +514,15 @@ def render_liquid_body(
 def _scaled_center(layout, col: int, row: int) -> tuple[int, int]:
     center_x = grid_edge(layout.active_x, col + 0.5, layout.active_modules, layout.active_qr_size)
     center_y = grid_edge(layout.active_y, row + 0.5, layout.active_modules, layout.active_qr_size)
-    return center_x * LIQUID_OVERSAMPLE, center_y * LIQUID_OVERSAMPLE
+    return center_x * BODY_OVERSAMPLE, center_y * BODY_OVERSAMPLE
 
 
 def _ellipse_rect(center_x: int, center_y: int, radius: int) -> tuple[int, int, int, int]:
     return center_x - radius, center_y - radius, center_x + radius, center_y + radius
+
+
+def _rgba(color: tuple[int, int, int]) -> tuple[int, int, int, int]:
+    return color[0], color[1], color[2], 255
 
 
 def _has_right(body_map: list[list[bool]], row: int, col: int) -> bool:
@@ -452,6 +584,7 @@ from __future__ import annotations
 from PIL import Image, ImageDraw
 
 from qr_preset_studio.domain.models.preset import Preset
+from qr_preset_studio.infrastructure.rendering.body_shapes import render_body
 from qr_preset_studio.infrastructure.rendering.canvas import build_canvas
 from qr_preset_studio.infrastructure.rendering.color_map import module_color
 from qr_preset_studio.infrastructure.rendering.constants import (
@@ -461,7 +594,6 @@ from qr_preset_studio.infrastructure.rendering.constants import (
     QR_BORDER_MODULES,
 )
 from qr_preset_studio.infrastructure.rendering.drawers import (
-    draw_body_module,
     draw_eye_ball,
     draw_eye_frame,
 )
@@ -484,9 +616,10 @@ def render_preset(preset: Preset) -> Image.Image:
     active_modules = active_module_count(matrix_size)
     layout = build_qr_layout(preset, active_modules)
     origins = finder_origins(active_modules)
+    body_map = _build_body_map(matrix, matrix_size, origins)
 
     _draw_card(canvas, preset, layout)
-    _draw_modules(canvas, preset, matrix, matrix_size, layout, origins)
+    render_body(canvas, preset, layout, body_map)
     _draw_finders(canvas, preset, layout, origins)
     return canvas
 
@@ -503,36 +636,26 @@ def _draw_card(canvas: Image.Image, preset: Preset, layout) -> None:
     )
 
 
-def _draw_modules(canvas: Image.Image, preset: Preset, matrix, matrix_size: int, layout, origins) -> None:
-    draw = ImageDraw.Draw(canvas)
+def _build_body_map(matrix, matrix_size: int, origins) -> list[list[bool]]:
+    body_map: list[list[bool]] = []
+
     for row, line in enumerate(matrix):
         if row < QR_BORDER_MODULES or row >= matrix_size - QR_BORDER_MODULES:
             continue
+
         active_row = row - QR_BORDER_MODULES
+        body_row: list[bool] = []
 
         for col, is_dark in enumerate(line):
-            if not is_dark or col < QR_BORDER_MODULES or col >= matrix_size - QR_BORDER_MODULES:
+            if col < QR_BORDER_MODULES or col >= matrix_size - QR_BORDER_MODULES:
                 continue
 
             active_col = col - QR_BORDER_MODULES
-            if in_finder_area(active_row, active_col, origins):
-                continue
+            body_row.append(bool(is_dark and not in_finder_area(active_row, active_col, origins)))
 
-            rect = active_rect(
-                active_x=layout.active_x,
-                active_y=layout.active_y,
-                active_col=active_col,
-                active_row=active_row,
-                span=1,
-                active_modules=layout.active_modules,
-                active_qr_size=layout.active_qr_size,
-            )
-            draw_body_module(
-                draw,
-                rect,
-                module_color(active_col, active_row, layout.active_modules, preset),
-                preset.body_shape,
-            )
+        body_map.append(body_row)
+
+    return body_map
 
 
 def _draw_finders(canvas: Image.Image, preset: Preset, layout, origins) -> None:
@@ -611,20 +734,6 @@ PREVIEW_MAX_SIZE = (900, 900)
 from __future__ import annotations
 
 from PIL import ImageDraw
-
-
-def draw_body_module(
-    draw: ImageDraw.ImageDraw,
-    rect: tuple[int, int, int, int],
-    color: tuple[int, int, int],
-    shape: str,
-) -> None:
-    if shape == "rounded":
-        radius = max(1, int(min(rect[2] - rect[0], rect[3] - rect[1]) * 0.3))
-        draw.rounded_rectangle(rect, radius=radius, fill=color)
-        return
-
-    draw.rectangle(rect, fill=color)
 
 
 def draw_eye_frame(
@@ -974,6 +1083,7 @@ class PresetEditor(QWidget):
             qr_mask_pattern=_parse_mask(self.content_panel.qr_mask_pattern_combo.currentText()),
             qr_optimize=self.content_panel.qr_optimize_spin.value(),
             body_shape=self.qr_style_panel.body_shape_combo.currentText(),
+            rounded_body_strength_percent=self.qr_style_panel.rounded_body_strength_spin.value(),
             eye_frame_shape=self.qr_style_panel.eye_frame_combo.currentText(),
             eye_ball_shape=self.qr_style_panel.eye_ball_combo.currentText(),
             qr_foreground_color=self.qr_style_panel.qr_color_button.color(),
@@ -1004,12 +1114,14 @@ class PresetEditor(QWidget):
         self.content_panel.qr_optimize_spin.setValue(preset.qr_optimize)
 
         self.qr_style_panel.body_shape_combo.setCurrentText(preset.body_shape)
+        self.qr_style_panel.rounded_body_strength_spin.setValue(preset.rounded_body_strength_percent)
         self.qr_style_panel.eye_frame_combo.setCurrentText(preset.eye_frame_shape)
         self.qr_style_panel.eye_ball_combo.setCurrentText(preset.eye_ball_shape)
         self.qr_style_panel.qr_color_button.set_color(preset.qr_foreground_color)
         self.qr_style_panel.gradient_enabled_check.setChecked(preset.gradient_enabled)
         self.qr_style_panel.gradient_color_button.set_color(preset.gradient_color)
         self.qr_style_panel.gradient_direction_combo.setCurrentText(preset.gradient_direction)
+        self.qr_style_panel.sync_state()
 
         self.qr_card_panel.qr_background_enabled_check.setChecked(preset.qr_background_enabled)
         self.qr_card_panel.qr_background_color_button.set_color(preset.qr_background_color)
@@ -1080,6 +1192,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from qr_preset_studio.ui.widgets.lockable_field import LockableField
+
 
 class BackgroundPanel(QGroupBox):
     changed = Signal()
@@ -1107,7 +1221,8 @@ class BackgroundPanel(QGroupBox):
         bg_layout.addWidget(self.background_path_input)
         bg_layout.addLayout(buttons)
 
-        form.addRow("Изображение", background_widget)
+        self.background_field = LockableField(background_widget)
+        form.addRow("Изображение", self.background_field)
 
         self.browse_button.clicked.connect(self.browse_requested)
         self.clear_button.clicked.connect(self.clear_requested)
@@ -1123,6 +1238,7 @@ from PySide6.QtCore import Signal
 from PySide6.QtWidgets import QFormLayout, QGroupBox, QSpinBox
 
 from qr_preset_studio.ui.widgets.color_button import ColorButton
+from qr_preset_studio.ui.widgets.lockable_field import LockableField
 
 
 class CanvasPanel(QGroupBox):
@@ -1137,9 +1253,9 @@ class CanvasPanel(QGroupBox):
         self.canvas_height_spin = _spin(256, 8000, " px")
         self.canvas_bg_color_button = ColorButton("#F3F4F6", "Цвет фона")
 
-        form.addRow("Ширина", self.canvas_width_spin)
-        form.addRow("Высота", self.canvas_height_spin)
-        form.addRow("Цвет фона", self.canvas_bg_color_button)
+        form.addRow("Ширина", LockableField(self.canvas_width_spin))
+        form.addRow("Высота", LockableField(self.canvas_height_spin))
+        form.addRow("Цвет фона", LockableField(self.canvas_bg_color_button))
 
         self.canvas_width_spin.valueChanged.connect(self.changed)
         self.canvas_height_spin.valueChanged.connect(self.changed)
@@ -1165,6 +1281,7 @@ from qr_preset_studio.domain.constants import (
     QR_MASK_PATTERN_VALUES,
     QR_VERSION_VALUES,
 )
+from qr_preset_studio.ui.widgets.lockable_field import LockableField
 
 
 class ContentPanel(QGroupBox):
@@ -1190,14 +1307,14 @@ class ContentPanel(QGroupBox):
         self.qr_error_correction_combo.setCurrentText("H")
         self.qr_optimize_spin.setValue(20)
 
-        form.addRow("Ссылка", self.link_input)
-        form.addRow("Version", self.qr_version_combo)
-        form.addRow("ECC", self.qr_error_correction_combo)
-        form.addRow("Mask", self.qr_mask_pattern_combo)
-        form.addRow("Optimize", self.qr_optimize_spin)
-        form.addRow("Размер QR", self.qr_scale_spin)
-        form.addRow("Сдвиг X", self.qr_offset_x_spin)
-        form.addRow("Сдвиг Y", self.qr_offset_y_spin)
+        form.addRow("Ссылка", LockableField(self.link_input))
+        form.addRow("Version", LockableField(self.qr_version_combo))
+        form.addRow("ECC", LockableField(self.qr_error_correction_combo))
+        form.addRow("Mask", LockableField(self.qr_mask_pattern_combo))
+        form.addRow("Optimize", LockableField(self.qr_optimize_spin))
+        form.addRow("Размер QR", LockableField(self.qr_scale_spin))
+        form.addRow("Сдвиг X", LockableField(self.qr_offset_x_spin))
+        form.addRow("Сдвиг Y", LockableField(self.qr_offset_y_spin))
 
         self.link_input.textChanged.connect(self.changed)
         self.qr_version_combo.currentTextChanged.connect(self.changed)
@@ -1299,6 +1416,7 @@ from PySide6.QtCore import Signal
 from PySide6.QtWidgets import QCheckBox, QFormLayout, QGroupBox, QSpinBox
 
 from qr_preset_studio.ui.widgets.color_button import ColorButton
+from qr_preset_studio.ui.widgets.lockable_field import LockableField
 
 
 class QrCardPanel(QGroupBox):
@@ -1316,12 +1434,12 @@ class QrCardPanel(QGroupBox):
         self.qr_border_width_spin = _spin(0, 50, " px")
         self.qr_border_color_button = ColorButton("#CBD5E1", "Цвет границы")
 
-        form.addRow("Показ", self.qr_background_enabled_check)
-        form.addRow("Цвет", self.qr_background_color_button)
-        form.addRow("Отступы", self.qr_background_padding_spin)
-        form.addRow("Скругление", self.qr_background_radius_spin)
-        form.addRow("Толщина границы", self.qr_border_width_spin)
-        form.addRow("Цвет границы", self.qr_border_color_button)
+        form.addRow("Показ", LockableField(self.qr_background_enabled_check))
+        form.addRow("Цвет", LockableField(self.qr_background_color_button))
+        form.addRow("Отступы", LockableField(self.qr_background_padding_spin))
+        form.addRow("Скругление", LockableField(self.qr_background_radius_spin))
+        form.addRow("Толщина границы", LockableField(self.qr_border_width_spin))
+        form.addRow("Цвет границы", LockableField(self.qr_border_color_button))
 
         self.qr_background_enabled_check.toggled.connect(self.changed)
         self.qr_background_padding_spin.valueChanged.connect(self.changed)
@@ -1352,6 +1470,7 @@ from qr_preset_studio.domain.constants import (
     GRADIENT_DIRECTIONS,
 )
 from qr_preset_studio.ui.widgets.color_button import ColorButton
+from qr_preset_studio.ui.widgets.lockable_field import LockableField
 
 
 class QrStylePanel(QGroupBox):
@@ -1363,38 +1482,51 @@ class QrStylePanel(QGroupBox):
         form.setSpacing(10)
 
         self.body_shape_combo = _combo(BODY_SHAPES)
+        self.rounded_body_strength_spin = _spin(10, 100, " %")
         self.eye_frame_combo = _combo(EYE_FRAME_SHAPES)
         self.eye_ball_combo = _combo(EYE_BALL_SHAPES)
-        self.liquid_body_size_spin = _spin(10, 100, " %")
         self.qr_color_button = ColorButton("#0F172A", "Основной цвет QR")
         self.gradient_enabled_check = QCheckBox("Включить градиент")
         self.gradient_color_button = ColorButton("#2563EB", "Второй цвет градиента")
         self.gradient_direction_combo = _combo(GRADIENT_DIRECTIONS)
 
-        form.addRow("Body shape", self.body_shape_combo)
-        form.addRow("Liquid size", self.liquid_body_size_spin)
-        form.addRow("Eye frame", self.eye_frame_combo)
-        form.addRow("Eye ball", self.eye_ball_combo)
-        form.addRow("Цвет QR", self.qr_color_button)
-        form.addRow("Градиент", self.gradient_enabled_check)
-        form.addRow("Второй цвет", self.gradient_color_button)
-        form.addRow("Направление", self.gradient_direction_combo)
+        self.rounded_body_strength_spin.setValue(100)
 
-        self.body_shape_combo.currentTextChanged.connect(self._sync_liquid_enabled)
+        self.body_shape_field = LockableField(self.body_shape_combo)
+        self.rounded_body_strength_field = LockableField(self.rounded_body_strength_spin)
+        self.eye_frame_field = LockableField(self.eye_frame_combo)
+        self.eye_ball_field = LockableField(self.eye_ball_combo)
+        self.qr_color_field = LockableField(self.qr_color_button)
+        self.gradient_enabled_field = LockableField(self.gradient_enabled_check)
+        self.gradient_color_field = LockableField(self.gradient_color_button)
+        self.gradient_direction_field = LockableField(self.gradient_direction_combo)
+
+        form.addRow("Body shape", self.body_shape_field)
+        form.addRow("Сила скругления", self.rounded_body_strength_field)
+        form.addRow("Eye frame", self.eye_frame_field)
+        form.addRow("Eye ball", self.eye_ball_field)
+        form.addRow("Цвет QR", self.qr_color_field)
+        form.addRow("Градиент", self.gradient_enabled_field)
+        form.addRow("Второй цвет", self.gradient_color_field)
+        form.addRow("Направление", self.gradient_direction_field)
+
+        self.body_shape_combo.currentTextChanged.connect(self._sync_state)
         self.body_shape_combo.currentTextChanged.connect(self.changed)
+        self.rounded_body_strength_spin.valueChanged.connect(self.changed)
         self.eye_frame_combo.currentTextChanged.connect(self.changed)
         self.eye_ball_combo.currentTextChanged.connect(self.changed)
-        self.liquid_body_size_spin.valueChanged.connect(self.changed)
         self.gradient_enabled_check.toggled.connect(self.changed)
         self.gradient_direction_combo.currentTextChanged.connect(self.changed)
         self.qr_color_button.clicked.connect(self.changed)
         self.gradient_color_button.clicked.connect(self.changed)
 
-        self.liquid_body_size_spin.setValue(78)
-        self._sync_liquid_enabled(self.body_shape_combo.currentText())
+        self.sync_state()
 
-    def _sync_liquid_enabled(self, shape: str) -> None:
-        self.liquid_body_size_spin.setEnabled(shape == "liquid")
+    def sync_state(self) -> None:
+        self._sync_state(self.body_shape_combo.currentText())
+
+    def _sync_state(self, shape: str) -> None:
+        self.rounded_body_strength_field.set_content_enabled(shape == "rounded")
 
 
 def _combo(values: list[str]) -> QComboBox:
@@ -1456,6 +1588,62 @@ class ColorButton(QPushButton):
             "}"
         )
 
+# qr_preset_studio/ui/widgets/lockable_field.py
+from __future__ import annotations
+
+from PySide6.QtCore import Qt
+from PySide6.QtWidgets import QHBoxLayout, QToolButton, QWidget
+
+
+class LockableField(QWidget):
+    def __init__(self, control: QWidget, parent=None) -> None:
+        super().__init__(parent)
+        self._control = control
+        self._content_enabled = True
+
+        self.lock_button = QToolButton()
+        self.lock_button.setCheckable(True)
+        self.lock_button.setCursor(Qt.PointingHandCursor)
+        self.lock_button.setFixedWidth(34)
+        self.lock_button.setStyleSheet(
+            "QToolButton {"
+            "border: 1px solid #CBD5E1;"
+            "border-radius: 8px;"
+            "padding: 4px;"
+            "background: #FFFFFF;"
+            "font-size: 14px;"
+            "}"
+            "QToolButton:checked {"
+            "background: #E2E8F0;"
+            "}"
+        )
+
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(8)
+        layout.addWidget(self._control, 1)
+        layout.addWidget(self.lock_button)
+
+        self.lock_button.toggled.connect(self._apply_state)
+        self._apply_state()
+
+    def is_locked(self) -> bool:
+        return self.lock_button.isChecked()
+
+    def set_locked(self, locked: bool) -> None:
+        self.lock_button.setChecked(locked)
+
+    def set_content_enabled(self, enabled: bool) -> None:
+        self._content_enabled = enabled
+        self._apply_state()
+
+    def _apply_state(self) -> None:
+        self._control.setEnabled(self._content_enabled and not self.is_locked())
+        self.lock_button.setText("🔒" if self.is_locked() else "🔓")
+        self.lock_button.setToolTip(
+            "Разблокировать настройку" if self.is_locked() else "Заблокировать настройку"
+        )
+
 # qr_preset_studio/ui/windows/__init__.py
 __all__ = []
 
@@ -1475,6 +1663,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from qr_preset_studio.application.services.app_state_service import AppStateService
 from qr_preset_studio.application.services.preset_service import PresetService
 from qr_preset_studio.application.services.render_service import RenderService
 from qr_preset_studio.domain.models.preset import Preset
@@ -1483,10 +1672,16 @@ from qr_preset_studio.ui.panels.preview_panel import PreviewPanel
 
 
 class MainWindow(QMainWindow):
-    def __init__(self, preset_service: PresetService, render_service: RenderService) -> None:
+    def __init__(
+        self,
+        preset_service: PresetService,
+        render_service: RenderService,
+        app_state_service: AppStateService,
+    ) -> None:
         super().__init__()
         self._preset_service = preset_service
         self._render_service = render_service
+        self._app_state_service = app_state_service
         self._preset = Preset()
 
         self.setWindowTitle("QR Preset Studio")
@@ -1494,7 +1689,7 @@ class MainWindow(QMainWindow):
 
         self._build_ui()
         self._bind_events()
-        self.editor.set_preset(self._preset)
+        self._restore_initial_preset()
         self._refresh_preview()
         self.statusBar().showMessage("Готово")
 
@@ -1528,6 +1723,22 @@ class MainWindow(QMainWindow):
         self.editor.actions_panel.export_requested.connect(self._export_png)
         self.preview_panel.zoom_changed.connect(self._refresh_preview)
 
+    def _restore_initial_preset(self) -> None:
+        last_path = self._app_state_service.last_preset_path()
+        if last_path is None:
+            self.editor.set_preset(self._preset)
+            return
+
+        try:
+            preset = self._preset_service.load(last_path)
+        except Exception:
+            self._app_state_service.clear_last_preset_path()
+            self.editor.set_preset(self._preset)
+            return
+
+        self._preset = preset
+        self.editor.set_preset(preset)
+
     def _refresh_preview(self) -> None:
         self._preset = self.editor.to_preset()
         image = self._render_service.render_preview(self._preset, self.preview_panel.zoom_percent())
@@ -1543,7 +1754,9 @@ class MainWindow(QMainWindow):
         )
         if not path:
             return
+
         self._preset_service.save(path, preset)
+        self._app_state_service.set_last_preset_path(path)
         self.statusBar().showMessage(f"Пресет сохранён: {path}", 4000)
 
     def _load_preset(self) -> None:
@@ -1557,6 +1770,7 @@ class MainWindow(QMainWindow):
             return
 
         preset = self._preset_service.load(path)
+        self._app_state_service.set_last_preset_path(path)
         self.editor.set_preset(preset)
         self._refresh_preview()
 

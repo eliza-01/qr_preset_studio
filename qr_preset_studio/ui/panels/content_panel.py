@@ -8,6 +8,7 @@ from qr_preset_studio.domain.constants import (
     QR_MASK_PATTERN_VALUES,
     QR_VERSION_VALUES,
 )
+from qr_preset_studio.ui.widgets.lockable_field import LockableField
 
 
 class ContentPanel(QGroupBox):
@@ -33,14 +34,14 @@ class ContentPanel(QGroupBox):
         self.qr_error_correction_combo.setCurrentText("H")
         self.qr_optimize_spin.setValue(20)
 
-        form.addRow("Ссылка", self.link_input)
-        form.addRow("Version", self.qr_version_combo)
-        form.addRow("ECC", self.qr_error_correction_combo)
-        form.addRow("Mask", self.qr_mask_pattern_combo)
-        form.addRow("Optimize", self.qr_optimize_spin)
-        form.addRow("Размер QR", self.qr_scale_spin)
-        form.addRow("Сдвиг X", self.qr_offset_x_spin)
-        form.addRow("Сдвиг Y", self.qr_offset_y_spin)
+        form.addRow("Ссылка", LockableField(self.link_input))
+        form.addRow("Version", LockableField(self.qr_version_combo))
+        form.addRow("ECC", LockableField(self.qr_error_correction_combo))
+        form.addRow("Mask", LockableField(self.qr_mask_pattern_combo))
+        form.addRow("Optimize", LockableField(self.qr_optimize_spin))
+        form.addRow("Размер QR", LockableField(self.qr_scale_spin))
+        form.addRow("Сдвиг X", LockableField(self.qr_offset_x_spin))
+        form.addRow("Сдвиг Y", LockableField(self.qr_offset_y_spin))
 
         self.link_input.textChanged.connect(self.changed)
         self.qr_version_combo.currentTextChanged.connect(self.changed)

@@ -4,6 +4,7 @@ from PySide6.QtCore import Signal
 from PySide6.QtWidgets import QFormLayout, QGroupBox, QSpinBox
 
 from qr_preset_studio.ui.widgets.color_button import ColorButton
+from qr_preset_studio.ui.widgets.lockable_field import LockableField
 
 
 class CanvasPanel(QGroupBox):
@@ -18,9 +19,9 @@ class CanvasPanel(QGroupBox):
         self.canvas_height_spin = _spin(256, 8000, " px")
         self.canvas_bg_color_button = ColorButton("#F3F4F6", "Цвет фона")
 
-        form.addRow("Ширина", self.canvas_width_spin)
-        form.addRow("Высота", self.canvas_height_spin)
-        form.addRow("Цвет фона", self.canvas_bg_color_button)
+        form.addRow("Ширина", LockableField(self.canvas_width_spin))
+        form.addRow("Высота", LockableField(self.canvas_height_spin))
+        form.addRow("Цвет фона", LockableField(self.canvas_bg_color_button))
 
         self.canvas_width_spin.valueChanged.connect(self.changed)
         self.canvas_height_spin.valueChanged.connect(self.changed)

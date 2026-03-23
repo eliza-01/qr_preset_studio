@@ -56,6 +56,7 @@ class PresetEditor(QWidget):
             qr_mask_pattern=_parse_mask(self.content_panel.qr_mask_pattern_combo.currentText()),
             qr_optimize=self.content_panel.qr_optimize_spin.value(),
             body_shape=self.qr_style_panel.body_shape_combo.currentText(),
+            rounded_body_strength_percent=self.qr_style_panel.rounded_body_strength_spin.value(),
             eye_frame_shape=self.qr_style_panel.eye_frame_combo.currentText(),
             eye_ball_shape=self.qr_style_panel.eye_ball_combo.currentText(),
             qr_foreground_color=self.qr_style_panel.qr_color_button.color(),
@@ -86,12 +87,14 @@ class PresetEditor(QWidget):
         self.content_panel.qr_optimize_spin.setValue(preset.qr_optimize)
 
         self.qr_style_panel.body_shape_combo.setCurrentText(preset.body_shape)
+        self.qr_style_panel.rounded_body_strength_spin.setValue(preset.rounded_body_strength_percent)
         self.qr_style_panel.eye_frame_combo.setCurrentText(preset.eye_frame_shape)
         self.qr_style_panel.eye_ball_combo.setCurrentText(preset.eye_ball_shape)
         self.qr_style_panel.qr_color_button.set_color(preset.qr_foreground_color)
         self.qr_style_panel.gradient_enabled_check.setChecked(preset.gradient_enabled)
         self.qr_style_panel.gradient_color_button.set_color(preset.gradient_color)
         self.qr_style_panel.gradient_direction_combo.setCurrentText(preset.gradient_direction)
+        self.qr_style_panel.sync_state()
 
         self.qr_card_panel.qr_background_enabled_check.setChecked(preset.qr_background_enabled)
         self.qr_card_panel.qr_background_color_button.set_color(preset.qr_background_color)

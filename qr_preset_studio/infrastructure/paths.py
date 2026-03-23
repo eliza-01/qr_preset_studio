@@ -10,6 +10,7 @@ class AppPaths:
     presets_dir: Path
     database_dir: Path
     database_file: Path
+    app_state_file: Path
 
     @classmethod
     def default(cls) -> "AppPaths":
@@ -17,6 +18,7 @@ class AppPaths:
         presets_dir = root_dir / "presets"
         database_dir = root_dir / "database"
         database_file = database_dir / "qr_preset_studio.sqlite3"
+        app_state_file = root_dir / "app_state.json"
 
         presets_dir.mkdir(parents=True, exist_ok=True)
         database_dir.mkdir(parents=True, exist_ok=True)
@@ -26,4 +28,5 @@ class AppPaths:
             presets_dir=presets_dir,
             database_dir=database_dir,
             database_file=database_file,
+            app_state_file=app_state_file,
         )
