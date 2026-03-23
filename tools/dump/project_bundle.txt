@@ -97,7 +97,7 @@ from __future__ import annotations
 from PIL import Image
 
 from qr_preset_studio.domain.models.preset import Preset
-from qr_preset_studio.infrastructure.rendering.composer import render_preset
+from qr_preset_studio.infrastructure.rendering.composer import render_export_preset
 from qr_preset_studio.infrastructure.rendering.preview import render_preview
 
 
@@ -106,7 +106,7 @@ class RenderService:
         return render_preview(preset, zoom_percent)
 
     def render_export(self, preset: Preset) -> Image.Image:
-        return render_preset(preset)
+        return render_export_preset(preset)
 
 # qr_preset_studio/bootstrap.py
 from __future__ import annotations
@@ -180,7 +180,7 @@ class AppState:
 # qr_preset_studio/domain/models/preset.py
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, fields
+from dataclasses import asdict, dataclass, field, fields
 from typing import Any
 
 from qr_preset_studio.domain.constants import (
@@ -199,12 +199,6 @@ class Preset:
     canvas_height: int = 1200
     canvas_background_color: str = "#F3F4F6"
     background_image_path: str = ""
-
-    # qr-monkey preset
-    # qr_version: int = 3
-    # qr_error_correction: str = "M"
-    # qr_mask_pattern: int = 6
-    # qr_optimize: int = 20
 
     qr_scale_percent: int = 42
     qr_offset_x: int = 0
@@ -232,6 +226,8 @@ class Preset:
     qr_border_width: int = 4
     qr_border_color: str = "#CBD5E1"
 
+    locked_fields: dict[str, bool] = field(default_factory=dict)
+
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 
@@ -242,6 +238,8 @@ class Preset:
 
         if "rounded_body_radius_px" not in data:
             data["rounded_body_radius_px"] = _legacy_body_radius(raw.get("rounded_body_strength_percent"))
+
+        data["locked_fields"] = _normalize_locked_fields(raw.get("locked_fields"))
 
         preset = cls(**data)
         preset.body_shape = _safe_choice(preset.body_shape, BODY_SHAPES)
@@ -297,6 +295,7 @@ class Preset:
             qr_background_radius=max(0, int(round(self.qr_background_radius * factor))),
             qr_border_width=max(0, int(round(self.qr_border_width * factor))),
             qr_border_color=self.qr_border_color,
+            locked_fields=dict(self.locked_fields),
         )
 
 
@@ -315,6 +314,35 @@ def _clamp_int(value: Any, minimum: int, maximum: int, fallback: int) -> int:
 def _legacy_body_radius(value: Any) -> int:
     strength = _clamp_int(value, 10, 100, 80)
     return max(1, min(24, int(round(strength / 10))))
+
+
+def _normalize_locked_fields(value: Any) -> dict[str, bool]:
+    if not isinstance(value, dict):
+        return {}
+
+    normalized: dict[str, bool] = {}
+    for key, raw_value in value.items():
+        if not isinstance(key, str):
+            continue
+
+        if isinstance(raw_value, bool):
+            normalized[key] = raw_value
+            continue
+
+        if isinstance(raw_value, (int, float)):
+            normalized[key] = raw_value != 0
+            continue
+
+        if isinstance(raw_value, str):
+            lowered = raw_value.strip().lower()
+            if lowered in {"true", "1"}:
+                normalized[key] = True
+                continue
+            if lowered in {"false", "0"}:
+                normalized[key] = False
+                continue
+
+    return normalized
 
 # qr_preset_studio/infrastructure/__init__.py
 __all__ = []
@@ -618,12 +646,14 @@ from qr_preset_studio.infrastructure.rendering.body_shapes import render_body
 from qr_preset_studio.infrastructure.rendering.canvas import build_canvas
 from qr_preset_studio.infrastructure.rendering.color_map import module_color
 from qr_preset_studio.infrastructure.rendering.constants import (
-    BASE_RENDER_DPI,
     FINDER_BALL_OFFSET,
     FINDER_BALL_SIZE,
     FINDER_SIZE,
+    MAX_EXPORT_SIDE,
     MAX_QR_LAYER_SIDE,
+    PRINT_BASE_DPI,
     QR_BORDER_MODULES,
+    ROUNDED_QR_LAYER_SUPERSAMPLE,
 )
 from qr_preset_studio.infrastructure.rendering.drawers import (
     draw_eye_ball,
@@ -638,7 +668,7 @@ from qr_preset_studio.infrastructure.rendering.qr_matrix import (
 )
 
 
-def render_preset(preset: Preset) -> Image.Image:
+def render_preset(preset: Preset, qr_layer_scale: float | None = None) -> Image.Image:
     canvas = build_canvas(preset)
     if not preset.link.strip():
         return canvas
@@ -650,8 +680,25 @@ def render_preset(preset: Preset) -> Image.Image:
     origins = finder_origins(active_modules)
     body_map = _build_body_map(matrix, matrix_size, origins)
 
-    _render_qr_layer(canvas, preset, layout, body_map, origins)
+    _render_qr_layer(
+        canvas,
+        preset,
+        layout,
+        body_map,
+        origins,
+        qr_layer_scale=_normalize_qr_layer_scale(preset, qr_layer_scale),
+    )
     return canvas
+
+
+def render_export_preset(preset: Preset) -> Image.Image:
+    export_scale = _export_canvas_scale(preset)
+    export_preset = preset if abs(export_scale - 1.0) < 1e-9 else preset.scaled_copy(export_scale)
+
+    image = render_preset(export_preset)
+    effective_dpi = int(round(PRINT_BASE_DPI * export_scale))
+    image.info["dpi"] = (effective_dpi, effective_dpi)
+    return image
 
 
 def _render_qr_layer(
@@ -660,12 +707,13 @@ def _render_qr_layer(
     layout: QrLayout,
     body_map: list[list[bool]],
     origins,
+    qr_layer_scale: float,
 ) -> None:
     card_left, card_top, card_right, card_bottom = layout.card_rect
     card_width = max(1, card_right - card_left)
     card_height = max(1, card_bottom - card_top)
 
-    render_scale = _qr_render_scale(preset.qr_dpi, card_width, card_height)
+    render_scale = _qr_render_scale(qr_layer_scale, card_width, card_height)
     layer_size = (
         max(1, int(round(card_width * render_scale))),
         max(1, int(round(card_height * render_scale))),
@@ -795,11 +843,35 @@ def _finder_position(origin_col: int, origin_row: int, active_modules: int) -> s
     return "bottom_right"
 
 
-def _qr_render_scale(qr_dpi: int, card_width: int, card_height: int) -> float:
-    requested_scale = max(1.0, qr_dpi / BASE_RENDER_DPI)
+def _qr_render_scale(requested_scale: float, card_width: int, card_height: int) -> float:
+    requested_scale = max(1.0, float(requested_scale))
     max_card_side = max(1, card_width, card_height)
     memory_cap_scale = max(1.0, MAX_QR_LAYER_SIDE / max_card_side)
     return max(1.0, min(requested_scale, memory_cap_scale))
+
+
+def _normalize_qr_layer_scale(preset: Preset, qr_layer_scale: float | None) -> float:
+    if qr_layer_scale is not None:
+        return max(1.0, float(qr_layer_scale))
+
+    if preset.body_shape != "square":
+        return ROUNDED_QR_LAYER_SUPERSAMPLE
+    if preset.eye_frame_shape != "square":
+        return ROUNDED_QR_LAYER_SUPERSAMPLE
+    if preset.eye_ball_shape != "square":
+        return ROUNDED_QR_LAYER_SUPERSAMPLE
+    return 1.0
+
+
+def _export_canvas_scale(preset: Preset) -> float:
+    target_dpi = max(PRINT_BASE_DPI, preset.qr_dpi)
+    requested_scale = target_dpi / PRINT_BASE_DPI
+
+    max_width_scale = MAX_EXPORT_SIDE / max(1, preset.canvas_width)
+    max_height_scale = MAX_EXPORT_SIDE / max(1, preset.canvas_height)
+    max_export_scale = max(1.0, min(max_width_scale, max_height_scale))
+
+    return max(1.0, min(requested_scale, max_export_scale))
 
 
 def _visible_layer(
@@ -833,8 +905,10 @@ FINDER_BALL_SIZE = 3
 QR_BORDER_MODULES = 4
 PREVIEW_MAX_SIZE = (900, 900)
 
-BASE_RENDER_DPI = 300
+PRINT_BASE_DPI = 300
 MAX_QR_LAYER_SIDE = 6144
+MAX_EXPORT_SIDE = 12000
+ROUNDED_QR_LAYER_SUPERSAMPLE = 2.0
 
 # qr_preset_studio/infrastructure/rendering/drawers.py
 from __future__ import annotations
@@ -1154,6 +1228,7 @@ from qr_preset_studio.ui.panels.canvas_panel import CanvasPanel
 from qr_preset_studio.ui.panels.content_panel import ContentPanel
 from qr_preset_studio.ui.panels.qr_card_panel import QrCardPanel
 from qr_preset_studio.ui.panels.qr_style_panel import QrStylePanel
+from qr_preset_studio.ui.widgets.lockable_field import LockableField
 
 
 class PresetEditor(QWidget):
@@ -1214,6 +1289,7 @@ class PresetEditor(QWidget):
             qr_background_radius=self.qr_card_panel.qr_background_radius_spin.value(),
             qr_border_width=self.qr_card_panel.qr_border_width_spin.value(),
             qr_border_color=self.qr_card_panel.qr_border_color_button.color(),
+            locked_fields=self._collect_locked_fields(),
         )
 
     def set_preset(self, preset: Preset) -> None:
@@ -1248,6 +1324,50 @@ class PresetEditor(QWidget):
         self.qr_card_panel.qr_background_radius_spin.setValue(preset.qr_background_radius)
         self.qr_card_panel.qr_border_width_spin.setValue(preset.qr_border_width)
         self.qr_card_panel.qr_border_color_button.set_color(preset.qr_border_color)
+
+        self._apply_locked_fields(preset.locked_fields)
+
+    def _collect_locked_fields(self) -> dict[str, bool]:
+        return {
+            key: field.is_locked()
+            for key, field in self._lock_fields().items()
+            if field.is_locked()
+        }
+
+    def _apply_locked_fields(self, locked_fields: dict[str, bool]) -> None:
+        for key, field in self._lock_fields().items():
+            field.set_locked(bool(locked_fields.get(key, False)))
+
+    def _lock_fields(self) -> dict[str, LockableField]:
+        return {
+            "link": self.content_panel.link_field,
+            "qr_version": self.content_panel.qr_version_field,
+            "qr_error_correction": self.content_panel.qr_error_correction_field,
+            "qr_mask_pattern": self.content_panel.qr_mask_pattern_field,
+            "qr_optimize": self.content_panel.qr_optimize_field,
+            "qr_dpi": self.content_panel.qr_dpi_field,
+            "qr_scale_percent": self.content_panel.qr_scale_field,
+            "qr_offset_x": self.content_panel.qr_offset_x_field,
+            "qr_offset_y": self.content_panel.qr_offset_y_field,
+            "canvas_width": self.canvas_panel.canvas_width_field,
+            "canvas_height": self.canvas_panel.canvas_height_field,
+            "canvas_background_color": self.canvas_panel.canvas_bg_color_field,
+            "background_image_path": self.background_panel.background_field,
+            "body_shape": self.qr_style_panel.body_shape_field,
+            "rounded_body_radius_px": self.qr_style_panel.rounded_body_radius_field,
+            "eye_frame_shape": self.qr_style_panel.eye_frame_field,
+            "eye_ball_shape": self.qr_style_panel.eye_ball_field,
+            "qr_foreground_color": self.qr_style_panel.qr_color_field,
+            "gradient_enabled": self.qr_style_panel.gradient_enabled_field,
+            "gradient_color": self.qr_style_panel.gradient_color_field,
+            "gradient_direction": self.qr_style_panel.gradient_direction_field,
+            "qr_background_enabled": self.qr_card_panel.qr_background_enabled_field,
+            "qr_background_color": self.qr_card_panel.qr_background_color_field,
+            "qr_background_padding": self.qr_card_panel.qr_background_padding_field,
+            "qr_background_radius": self.qr_card_panel.qr_background_radius_field,
+            "qr_border_width": self.qr_card_panel.qr_border_width_field,
+            "qr_border_color": self.qr_card_panel.qr_border_color_field,
+        }
 
 
 def _parse_version(value: str) -> int:
@@ -1372,9 +1492,13 @@ class CanvasPanel(QGroupBox):
         self.canvas_height_spin = _spin(256, 8000, " px")
         self.canvas_bg_color_button = ColorButton("#F3F4F6", "Цвет фона")
 
-        form.addRow("Ширина", LockableField(self.canvas_width_spin))
-        form.addRow("Высота", LockableField(self.canvas_height_spin))
-        form.addRow("Цвет фона", LockableField(self.canvas_bg_color_button))
+        self.canvas_width_field = LockableField(self.canvas_width_spin)
+        self.canvas_height_field = LockableField(self.canvas_height_spin)
+        self.canvas_bg_color_field = LockableField(self.canvas_bg_color_button)
+
+        form.addRow("Ширина", self.canvas_width_field)
+        form.addRow("Высота", self.canvas_height_field)
+        form.addRow("Цвет фона", self.canvas_bg_color_field)
 
         self.canvas_width_spin.valueChanged.connect(self.changed)
         self.canvas_height_spin.valueChanged.connect(self.changed)
@@ -1430,15 +1554,25 @@ class ContentPanel(QGroupBox):
         self.qr_optimize_spin.setValue(20)
         self.qr_dpi_spin.setValue(300)
 
-        form.addRow("Ссылка", LockableField(self.link_input))
-        form.addRow("Version", LockableField(self.qr_version_combo))
-        form.addRow("ECC", LockableField(self.qr_error_correction_combo))
-        form.addRow("Mask", LockableField(self.qr_mask_pattern_combo))
-        form.addRow("Optimize", LockableField(self.qr_optimize_spin))
-        form.addRow("QR DPI", LockableField(self.qr_dpi_spin))
-        form.addRow("Размер QR", LockableField(self.qr_scale_spin))
-        form.addRow("Сдвиг X", LockableField(self.qr_offset_x_spin))
-        form.addRow("Сдвиг Y", LockableField(self.qr_offset_y_spin))
+        self.link_field = LockableField(self.link_input)
+        self.qr_version_field = LockableField(self.qr_version_combo)
+        self.qr_error_correction_field = LockableField(self.qr_error_correction_combo)
+        self.qr_mask_pattern_field = LockableField(self.qr_mask_pattern_combo)
+        self.qr_optimize_field = LockableField(self.qr_optimize_spin)
+        self.qr_dpi_field = LockableField(self.qr_dpi_spin)
+        self.qr_scale_field = LockableField(self.qr_scale_spin)
+        self.qr_offset_x_field = LockableField(self.qr_offset_x_spin)
+        self.qr_offset_y_field = LockableField(self.qr_offset_y_spin)
+
+        form.addRow("Ссылка", self.link_field)
+        form.addRow("Version", self.qr_version_field)
+        form.addRow("ECC", self.qr_error_correction_field)
+        form.addRow("Mask", self.qr_mask_pattern_field)
+        form.addRow("Optimize", self.qr_optimize_field)
+        form.addRow("QR DPI", self.qr_dpi_field)
+        form.addRow("Размер QR", self.qr_scale_field)
+        form.addRow("Сдвиг X", self.qr_offset_x_field)
+        form.addRow("Сдвиг Y", self.qr_offset_y_field)
 
         self.link_input.textChanged.connect(self.changed)
         self.qr_version_combo.currentTextChanged.connect(self.changed)
@@ -1565,12 +1699,19 @@ class QrCardPanel(QGroupBox):
         self.qr_border_width_spin = _spin(0, 50, " px")
         self.qr_border_color_button = ColorButton("#CBD5E1", "Цвет границы")
 
-        form.addRow("Показ", LockableField(self.qr_background_enabled_check))
-        form.addRow("Цвет", LockableField(self.qr_background_color_button))
-        form.addRow("Отступы", LockableField(self.qr_background_padding_spin))
-        form.addRow("Скругление", LockableField(self.qr_background_radius_spin))
-        form.addRow("Толщина границы", LockableField(self.qr_border_width_spin))
-        form.addRow("Цвет границы", LockableField(self.qr_border_color_button))
+        self.qr_background_enabled_field = LockableField(self.qr_background_enabled_check)
+        self.qr_background_color_field = LockableField(self.qr_background_color_button)
+        self.qr_background_padding_field = LockableField(self.qr_background_padding_spin)
+        self.qr_background_radius_field = LockableField(self.qr_background_radius_spin)
+        self.qr_border_width_field = LockableField(self.qr_border_width_spin)
+        self.qr_border_color_field = LockableField(self.qr_border_color_button)
+
+        form.addRow("Показ", self.qr_background_enabled_field)
+        form.addRow("Цвет", self.qr_background_color_field)
+        form.addRow("Отступы", self.qr_background_padding_field)
+        form.addRow("Скругление", self.qr_background_radius_field)
+        form.addRow("Толщина границы", self.qr_border_width_field)
+        form.addRow("Цвет границы", self.qr_border_color_field)
 
         self.qr_background_enabled_check.toggled.connect(self.changed)
         self.qr_background_padding_spin.valueChanged.connect(self.changed)
@@ -1953,7 +2094,8 @@ class MainWindow(QMainWindow):
 
         try:
             image = self._render_service.render_export(preset)
-            image.save(path, format="PNG", dpi=(preset.qr_dpi, preset.qr_dpi))
+            dpi = image.info.get("dpi", (300, 300))
+            image.save(path, format="PNG", dpi=dpi)
         except ValueError as exc:
             QMessageBox.warning(self, "QR не помещается", str(exc))
             return
@@ -1961,7 +2103,8 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, "Ошибка экспорта", str(exc))
             return
 
-        self.statusBar().showMessage(f"PNG сохранён: {path}", 5000)
+        actual_dpi = int(round(dpi[0])) if dpi else 300
+        self.statusBar().showMessage(f"PNG сохранён: {path} ({actual_dpi} dpi)", 5000)
 
     def _choose_background(self) -> None:
         path, _ = QFileDialog.getOpenFileName(

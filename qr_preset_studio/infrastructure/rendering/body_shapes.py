@@ -15,7 +15,7 @@ def render_body(
     render_scale: float = 1.0,
 ) -> None:
     if preset.body_shape == "rounded":
-        _render_connected_rounded_body(canvas, preset, layout, body_map, render_scale)
+        _render_rounded_body(canvas, preset, layout, body_map, render_scale)
         return
 
     _render_square_body(canvas, preset, layout, body_map)
@@ -46,15 +46,15 @@ def _render_square_body(
             draw.rectangle(rect, fill=module_color(col, row, layout.active_modules, preset))
 
 
-def _render_connected_rounded_body(
+def _render_rounded_body(
     canvas: Image.Image,
     preset: Preset,
     layout,
     body_map: list[list[bool]],
     render_scale: float,
 ) -> None:
-    radius = _body_radius(preset, layout, render_scale)
-    if radius <= 0:
+    requested_radius = _body_radius(preset, layout, render_scale)
+    if requested_radius <= 0:
         _render_square_body(canvas, preset, layout, body_map)
         return
 
@@ -65,58 +65,64 @@ def _render_connected_rounded_body(
             if not is_dark:
                 continue
 
-            center_x, center_y = _module_center(layout, col, row)
+            rect = active_rect(
+                active_x=layout.active_x,
+                active_y=layout.active_y,
+                active_col=col,
+                active_row=row,
+                span=1,
+                active_modules=layout.active_modules,
+                active_qr_size=layout.active_qr_size,
+            )
+            radius = _rect_radius(rect, requested_radius)
+            color = module_color(col, row, layout.active_modules, preset)
+            corners = _rounded_corners(body_map, row, col)
 
-            if _has_right(body_map, row, col):
-                right_x, _ = _module_center(layout, col + 1, row)
-                draw.rounded_rectangle(
-                    (center_x - radius, center_y - radius, right_x + radius, center_y + radius),
-                    radius=radius,
-                    fill=module_color(col + 0.5, row, layout.active_modules, preset),
-                )
-
-            if _has_down(body_map, row, col):
-                _, down_y = _module_center(layout, col, row + 1)
-                draw.rounded_rectangle(
-                    (center_x - radius, center_y - radius, center_x + radius, down_y + radius),
-                    radius=radius,
-                    fill=module_color(col, row + 0.5, layout.active_modules, preset),
-                )
-
-    for row, line in enumerate(body_map):
-        for col, is_dark in enumerate(line):
-            if not is_dark:
+            if radius <= 0 or not any(corners):
+                draw.rectangle(rect, fill=color)
                 continue
 
-            center_x, center_y = _module_center(layout, col, row)
-            draw.ellipse(
-                _ellipse_rect(center_x, center_y, radius),
-                fill=module_color(col, row, layout.active_modules, preset),
+            draw.rounded_rectangle(
+                rect,
+                radius=radius,
+                fill=color,
+                corners=corners,
             )
 
 
 def _body_radius(preset: Preset, layout, render_scale: float) -> int:
     requested = max(0, int(round(preset.rounded_body_radius_px * render_scale)))
+    if requested <= 0:
+        return 0
+
     module_pitch = layout.active_qr_size / max(1, layout.active_modules)
-    max_radius = max(1, int(round(module_pitch / 2)))
+    max_radius = max(0, int(module_pitch / 2))
     return min(requested, max_radius)
 
 
-def _module_center(layout, col: int, row: int) -> tuple[int, int]:
-    left, top, right, bottom = active_rect(
-        active_x=layout.active_x,
-        active_y=layout.active_y,
-        active_col=col,
-        active_row=row,
-        span=1,
-        active_modules=layout.active_modules,
-        active_qr_size=layout.active_qr_size,
+def _rect_radius(rect: tuple[int, int, int, int], requested_radius: int) -> int:
+    width = max(1, rect[2] - rect[0])
+    height = max(1, rect[3] - rect[1])
+    max_radius = max(0, min(width, height) // 2)
+    return min(requested_radius, max_radius)
+
+
+def _rounded_corners(body_map: list[list[bool]], row: int, col: int) -> tuple[bool, bool, bool, bool]:
+    up = _has_up(body_map, row, col)
+    right = _has_right(body_map, row, col)
+    down = _has_down(body_map, row, col)
+    left = _has_left(body_map, row, col)
+
+    return (
+        not up and not left,
+        not up and not right,
+        not down and not right,
+        not down and not left,
     )
-    return (left + right) // 2, (top + bottom) // 2
 
 
-def _ellipse_rect(center_x: int, center_y: int, radius: int) -> tuple[int, int, int, int]:
-    return center_x - radius, center_y - radius, center_x + radius, center_y + radius
+def _has_up(body_map: list[list[bool]], row: int, col: int) -> bool:
+    return row > 0 and body_map[row - 1][col]
 
 
 def _has_right(body_map: list[list[bool]], row: int, col: int) -> bool:
@@ -125,3 +131,7 @@ def _has_right(body_map: list[list[bool]], row: int, col: int) -> bool:
 
 def _has_down(body_map: list[list[bool]], row: int, col: int) -> bool:
     return row + 1 < len(body_map) and body_map[row + 1][col]
+
+
+def _has_left(body_map: list[list[bool]], row: int, col: int) -> bool:
+    return col > 0 and body_map[row][col - 1]
