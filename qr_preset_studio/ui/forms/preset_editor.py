@@ -14,6 +14,14 @@ from qr_preset_studio.ui.panels.qr_style_panel import QrStylePanel
 from qr_preset_studio.ui.widgets.lockable_field import LockableField
 
 
+_DEFAULT_LOCKED_FIELDS = {
+    "qr_version",
+    "qr_error_correction",
+    "qr_mask_pattern",
+    "qr_optimize",
+}
+
+
 class PresetEditor(QWidget):
     changed = Signal()
 
@@ -155,12 +163,11 @@ class PresetEditor(QWidget):
         return {
             key: field.is_locked()
             for key, field in self._lock_fields().items()
-            if field.is_locked()
         }
 
     def _apply_locked_fields(self, locked_fields: dict[str, bool]) -> None:
         for key, field in self._lock_fields().items():
-            field.set_locked(bool(locked_fields.get(key, False)))
+            field.set_locked(bool(locked_fields.get(key, key in _DEFAULT_LOCKED_FIELDS)))
 
     def _lock_fields(self) -> dict[str, LockableField]:
         return {

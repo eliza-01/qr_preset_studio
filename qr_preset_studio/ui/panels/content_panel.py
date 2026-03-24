@@ -1,13 +1,24 @@
 from __future__ import annotations
 
 from PySide6.QtCore import Signal
-from PySide6.QtWidgets import QComboBox, QFormLayout, QGroupBox, QLineEdit, QSpinBox
+from PySide6.QtWidgets import (
+    QComboBox,
+    QFormLayout,
+    QGroupBox,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QSpinBox,
+    QVBoxLayout,
+    QWidget,
+)
 
 from qr_preset_studio.domain.constants import (
     QR_ERROR_CORRECTION_LEVELS,
     QR_MASK_PATTERN_VALUES,
     QR_VERSION_VALUES,
 )
+from qr_preset_studio.ui.widgets.collapsible_section import CollapsibleSection
 from qr_preset_studio.ui.widgets.lockable_field import LockableField
 
 
@@ -16,8 +27,8 @@ class ContentPanel(QGroupBox):
 
     def __init__(self) -> None:
         super().__init__("QR")
-        form = QFormLayout(self)
-        form.setSpacing(10)
+        root = QVBoxLayout(self)
+        root.setSpacing(10)
 
         self.link_input = QLineEdit()
         self.link_input.setPlaceholderText("https://example.com")
@@ -32,9 +43,9 @@ class ContentPanel(QGroupBox):
         self.qr_offset_x_spin = _spin(-5000, 5000, " px")
         self.qr_offset_y_spin = _spin(-5000, 5000, " px")
 
-        self.qr_version_combo.setCurrentText("auto")
-        self.qr_error_correction_combo.setCurrentText("H")
-        self.qr_mask_pattern_combo.setCurrentText("auto")
+        self.qr_version_combo.setCurrentText("3")
+        self.qr_error_correction_combo.setCurrentText("M")
+        self.qr_mask_pattern_combo.setCurrentText("6")
         self.qr_optimize_spin.setValue(20)
         self.qr_dpi_spin.setValue(300)
 
@@ -48,15 +59,38 @@ class ContentPanel(QGroupBox):
         self.qr_offset_x_field = LockableField(self.qr_offset_x_spin)
         self.qr_offset_y_field = LockableField(self.qr_offset_y_spin)
 
+        for field in [
+            self.qr_version_field,
+            self.qr_error_correction_field,
+            self.qr_mask_pattern_field,
+            self.qr_optimize_field,
+        ]:
+            field.set_locked(True)
+
+        form = QFormLayout()
+        form.setSpacing(10)
         form.addRow("Ссылка", self.link_field)
-        form.addRow("Version", self.qr_version_field)
-        form.addRow("ECC", self.qr_error_correction_field)
-        form.addRow("Mask", self.qr_mask_pattern_field)
-        form.addRow("Optimize", self.qr_optimize_field)
-        form.addRow("QR DPI", self.qr_dpi_field)
-        form.addRow("Размер QR", self.qr_scale_field)
-        form.addRow("Сдвиг X", self.qr_offset_x_field)
-        form.addRow("Сдвиг Y", self.qr_offset_y_field)
+        form.addRow(_two_field_row(("QR DPI", self.qr_dpi_field), ("Размер QR", self.qr_scale_field)))
+        form.addRow(_two_field_row(("Сдвиг X", self.qr_offset_x_field), ("Сдвиг Y", self.qr_offset_y_field)))
+        root.addLayout(form)
+
+        self.advanced_section = CollapsibleSection("default: Version (3), ECC (M), MASK (6), Optimize (20)")
+        advanced_form = QFormLayout()
+        advanced_form.setSpacing(10)
+        advanced_form.addRow("Version", self.qr_version_field)
+        advanced_form.addRow("ECC", self.qr_error_correction_field)
+        advanced_form.addRow("MASK", self.qr_mask_pattern_field)
+        advanced_form.addRow("Optimize", self.qr_optimize_field)
+
+        advanced_content = QWidget()
+        advanced_content.setLayout(advanced_form)
+
+        advanced_layout = QVBoxLayout()
+        advanced_layout.setContentsMargins(0, 0, 0, 0)
+        advanced_layout.addWidget(advanced_content)
+        self.advanced_section.set_content_layout(advanced_layout)
+        self.advanced_section.set_expanded(False)
+        root.addWidget(self.advanced_section)
 
         self.link_input.textChanged.connect(self.changed)
         self.qr_version_combo.currentTextChanged.connect(self.changed)
@@ -82,3 +116,25 @@ def _combo(values: list[str]) -> QComboBox:
     combo = QComboBox()
     combo.addItems(values)
     return combo
+
+
+def _two_field_row(left: tuple[str, QWidget], right: tuple[str, QWidget]) -> QWidget:
+    row = QWidget()
+    layout = QHBoxLayout(row)
+    layout.setContentsMargins(0, 0, 0, 0)
+    layout.setSpacing(10)
+    layout.addWidget(_field_column(*left), 1)
+    layout.addWidget(_field_column(*right), 1)
+    return row
+
+
+def _field_column(title: str, control: QWidget) -> QWidget:
+    column = QWidget()
+    layout = QVBoxLayout(column)
+    layout.setContentsMargins(0, 0, 0, 0)
+    layout.setSpacing(6)
+
+    label = QLabel(title)
+    layout.addWidget(label)
+    layout.addWidget(control)
+    return column

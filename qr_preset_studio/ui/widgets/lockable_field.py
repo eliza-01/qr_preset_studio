@@ -1,10 +1,12 @@
 from __future__ import annotations
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import QHBoxLayout, QToolButton, QWidget
 
 
 class LockableField(QWidget):
+    state_changed = Signal()
+
     def __init__(self, control: QWidget, parent=None) -> None:
         super().__init__(parent)
         self._control = control
@@ -52,3 +54,4 @@ class LockableField(QWidget):
         self.lock_button.setToolTip(
             "Разблокировать настройку" if self.is_locked() else "Заблокировать настройку"
         )
+        self.state_changed.emit()

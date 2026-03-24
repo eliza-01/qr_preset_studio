@@ -3,7 +3,6 @@ from __future__ import annotations
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (
     QFormLayout,
-    QGroupBox,
     QHBoxLayout,
     QLineEdit,
     QPushButton,
@@ -11,18 +10,24 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from qr_preset_studio.ui.widgets.collapsible_section import CollapsibleSection
 from qr_preset_studio.ui.widgets.lockable_field import LockableField
 
 
-class BackgroundPanel(QGroupBox):
+class BackgroundPanel(QWidget):
     changed = Signal()
     browse_requested = Signal()
     clear_requested = Signal()
 
     def __init__(self) -> None:
-        super().__init__("Фон")
-        form = QFormLayout(self)
-        form.setSpacing(10)
+        super().__init__()
+
+        root = QVBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(0)
+
+        self.section = CollapsibleSection("Фон")
+        root.addWidget(self.section)
 
         self.background_path_input = QLineEdit()
         self.background_path_input.setReadOnly(True)
@@ -30,6 +35,8 @@ class BackgroundPanel(QGroupBox):
         self.clear_button = QPushButton("Сбросить")
 
         buttons = QHBoxLayout()
+        buttons.setContentsMargins(0, 0, 0, 0)
+        buttons.setSpacing(8)
         buttons.addWidget(self.browse_button)
         buttons.addWidget(self.clear_button)
 
@@ -41,7 +48,17 @@ class BackgroundPanel(QGroupBox):
         bg_layout.addLayout(buttons)
 
         self.background_field = LockableField(background_widget)
+
+        content = QWidget()
+        form = QFormLayout(content)
+        form.setSpacing(10)
         form.addRow("Изображение", self.background_field)
+
+        content_layout = QVBoxLayout()
+        content_layout.setContentsMargins(0, 0, 0, 0)
+        content_layout.addWidget(content)
+        self.section.set_content_layout(content_layout)
+        self.section.set_expanded(False)
 
         self.browse_button.clicked.connect(self.browse_requested)
         self.clear_button.clicked.connect(self.clear_requested)
