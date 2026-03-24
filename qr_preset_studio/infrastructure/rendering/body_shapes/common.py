@@ -47,17 +47,21 @@ def paint_module_colors(
         )
 
 
-def free_corners(body_map: list[list[bool]], row: int, col: int) -> tuple[bool, bool, bool, bool]:
+def exposed_sides(body_map: list[list[bool]], row: int, col: int) -> tuple[bool, bool, bool, bool]:
     up = _has_up(body_map, row, col)
     right = _has_right(body_map, row, col)
     down = _has_down(body_map, row, col)
     left = _has_left(body_map, row, col)
+    return not up, not right, not down, not left
 
+
+def free_corners(body_map: list[list[bool]], row: int, col: int) -> tuple[bool, bool, bool, bool]:
+    top, right, bottom, left = exposed_sides(body_map, row, col)
     return (
-        not up and not left,
-        not up and not right,
-        not down and not right,
-        not down and not left,
+        top and left,
+        top and right,
+        bottom and right,
+        bottom and left,
     )
 
 

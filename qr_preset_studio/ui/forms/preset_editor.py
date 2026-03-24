@@ -59,6 +59,7 @@ class PresetEditor(QWidget):
             qr_dpi=self.content_panel.qr_dpi_spin.value(),
             body_shape=self.qr_style_panel.body_shape_combo.currentText(),
             rounded_body_radius_px=self.qr_style_panel.rounded_body_radius_spin.value(),
+            spikes_single_corner_radius_px=self.qr_style_panel.spikes_single_corner_radius_spin.value(),
             eye_frame_shape=self.qr_style_panel.eye_frame_combo.currentText(),
             eye_ball_shape=self.qr_style_panel.eye_ball_combo.currentText(),
             qr_foreground_color=self.qr_style_panel.qr_color_button.color(),
@@ -92,6 +93,7 @@ class PresetEditor(QWidget):
 
         self.qr_style_panel.body_shape_combo.setCurrentText(preset.body_shape)
         self.qr_style_panel.rounded_body_radius_spin.setValue(preset.rounded_body_radius_px)
+        self.qr_style_panel.spikes_single_corner_radius_spin.setValue(preset.spikes_single_corner_radius_px)
         self.qr_style_panel.eye_frame_combo.setCurrentText(preset.eye_frame_shape)
         self.qr_style_panel.eye_ball_combo.setCurrentText(preset.eye_ball_shape)
         self.qr_style_panel.qr_color_button.set_color(preset.qr_foreground_color)
@@ -137,6 +139,7 @@ class PresetEditor(QWidget):
             "background_image_path": self.background_panel.background_field,
             "body_shape": self.qr_style_panel.body_shape_field,
             "rounded_body_radius_px": self.qr_style_panel.rounded_body_radius_field,
+            "spikes_single_corner_radius_px": self.qr_style_panel.spikes_single_corner_radius_field,
             "eye_frame_shape": self.qr_style_panel.eye_frame_field,
             "eye_ball_shape": self.qr_style_panel.eye_ball_field,
             "qr_foreground_color": self.qr_style_panel.qr_color_field,

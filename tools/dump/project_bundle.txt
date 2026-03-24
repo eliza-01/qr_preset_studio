@@ -461,14 +461,15 @@ class JsonPresetRepository:
 # qr_preset_studio/infrastructure/rendering/__init__.py
 __all__ = []
 
-# qr_preset_studio/infrastructure/rendering/body_shapes.py
+# qr_preset_studio/infrastructure/rendering/body_shapes/__init__.py
 from __future__ import annotations
 
-from PIL import Image, ImageDraw
+from PIL import Image
 
 from qr_preset_studio.domain.models.preset import Preset
-from qr_preset_studio.infrastructure.rendering.color_map import module_color
-from qr_preset_studio.infrastructure.rendering.geometry import active_rect
+from qr_preset_studio.infrastructure.rendering.body_shapes.liquid import render_liquid_body
+from qr_preset_studio.infrastructure.rendering.body_shapes.rounded import render_rounded_body
+from qr_preset_studio.infrastructure.rendering.body_shapes.square import render_square_body
 
 
 def render_body(
@@ -479,115 +480,35 @@ def render_body(
     render_scale: float = 1.0,
 ) -> None:
     if preset.body_shape == "liquid":
-        _render_liquid_body(canvas, preset, layout, body_map)
+        render_liquid_body(canvas, preset, layout, body_map)
         return
 
     if preset.body_shape == "rounded":
-        _render_rounded_body(canvas, preset, layout, body_map, render_scale)
+        render_rounded_body(canvas, preset, layout, body_map, render_scale)
         return
 
-    _render_square_body(canvas, preset, layout, body_map)
+    render_square_body(canvas, preset, layout, body_map)
+
+# qr_preset_studio/infrastructure/rendering/body_shapes/common.py
+from __future__ import annotations
+
+from collections.abc import Iterator
+
+from PIL import Image, ImageDraw
+
+from qr_preset_studio.domain.models.preset import Preset
+from qr_preset_studio.infrastructure.rendering.color_map import module_color
+from qr_preset_studio.infrastructure.rendering.geometry import active_rect
 
 
-def _render_square_body(
-    canvas: Image.Image,
-    preset: Preset,
-    layout,
-    body_map: list[list[bool]],
-) -> None:
-    draw = ImageDraw.Draw(canvas)
-
+def iter_dark_modules(body_map: list[list[bool]]) -> Iterator[tuple[int, int]]:
     for row, line in enumerate(body_map):
         for col, is_dark in enumerate(line):
-            if not is_dark:
-                continue
-
-            rect = _module_rect(layout, col, row)
-            draw.rectangle(rect, fill=module_color(col, row, layout.active_modules, preset))
+            if is_dark:
+                yield row, col
 
 
-def _render_rounded_body(
-    canvas: Image.Image,
-    preset: Preset,
-    layout,
-    body_map: list[list[bool]],
-    render_scale: float,
-) -> None:
-    requested_radius = _rounded_body_radius(preset, layout, render_scale)
-    if requested_radius <= 0:
-        _render_square_body(canvas, preset, layout, body_map)
-        return
-
-    draw = ImageDraw.Draw(canvas)
-
-    for row, line in enumerate(body_map):
-        for col, is_dark in enumerate(line):
-            if not is_dark:
-                continue
-
-            rect = _module_rect(layout, col, row)
-            radius = _rect_corner_radius(rect, requested_radius)
-            corners = _free_corners(body_map, row, col)
-            color = module_color(col, row, layout.active_modules, preset)
-
-            if radius <= 0 or not any(corners):
-                draw.rectangle(rect, fill=color)
-                continue
-
-            draw.rounded_rectangle(
-                rect,
-                radius=radius,
-                fill=color,
-                corners=corners,
-            )
-
-
-def _render_liquid_body(
-    canvas: Image.Image,
-    preset: Preset,
-    layout,
-    body_map: list[list[bool]],
-) -> None:
-    body_layer = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
-    _render_square_body(body_layer, preset, layout, body_map)
-
-    mask = Image.new("L", canvas.size, 0)
-    mask_draw = ImageDraw.Draw(mask)
-
-    for row, line in enumerate(body_map):
-        for col, is_dark in enumerate(line):
-            if not is_dark:
-                continue
-
-            rect = _module_rect(layout, col, row)
-            corners = _free_corners(body_map, row, col)
-            free_count = sum(1 for value in corners if value)
-
-            if free_count == 0:
-                mask_draw.rectangle(rect, fill=255)
-                continue
-
-            if free_count == 1:
-                _paste_quarter_circle(mask, rect, corners)
-                continue
-
-            radius = _rect_half_radius(rect)
-            if radius <= 0:
-                mask_draw.rectangle(rect, fill=255)
-                continue
-
-            mask_draw.rounded_rectangle(
-                rect,
-                radius=radius,
-                fill=255,
-                corners=corners,
-            )
-
-    body_layer.putalpha(mask)
-    canvas.alpha_composite(body_layer)
-
-
-def _module_rect(layout, col: int, row: int) -> tuple[int, int, int, int]:
+def module_rect(layout, col: int, row: int) -> tuple[int, int, int, int]:
     return active_rect(
         active_x=layout.active_x,
         active_y=layout.active_y,
@@ -599,29 +520,26 @@ def _module_rect(layout, col: int, row: int) -> tuple[int, int, int, int]:
     )
 
 
-def _rounded_body_radius(preset: Preset, layout, render_scale: float) -> int:
-    requested = max(0, int(round(preset.rounded_body_radius_px * render_scale)))
-    if requested <= 0:
-        return 0
-
-    module_pitch = layout.active_qr_size / max(1, layout.active_modules)
-    max_radius = max(0, int(module_pitch / 2))
-    return min(requested, max_radius)
+def rect_size(rect: tuple[int, int, int, int]) -> tuple[int, int]:
+    return max(1, rect[2] - rect[0]), max(1, rect[3] - rect[1])
 
 
-def _rect_corner_radius(rect: tuple[int, int, int, int], requested_radius: int) -> int:
-    width = max(1, rect[2] - rect[0])
-    height = max(1, rect[3] - rect[1])
-    return min(requested_radius, min(width, height) // 2)
+def paint_module_colors(
+    canvas: Image.Image,
+    preset: Preset,
+    layout,
+    body_map: list[list[bool]],
+) -> None:
+    draw = ImageDraw.Draw(canvas)
+
+    for row, col in iter_dark_modules(body_map):
+        draw.rectangle(
+            module_rect(layout, col, row),
+            fill=module_color(col, row, layout.active_modules, preset),
+        )
 
 
-def _rect_half_radius(rect: tuple[int, int, int, int]) -> int:
-    width = max(1, rect[2] - rect[0])
-    height = max(1, rect[3] - rect[1])
-    return max(1, min(width, height) // 2)
-
-
-def _free_corners(body_map: list[list[bool]], row: int, col: int) -> tuple[bool, bool, bool, bool]:
+def free_corners(body_map: list[list[bool]], row: int, col: int) -> tuple[bool, bool, bool, bool]:
     up = _has_up(body_map, row, col)
     right = _has_right(body_map, row, col)
     down = _has_down(body_map, row, col)
@@ -633,39 +551,6 @@ def _free_corners(body_map: list[list[bool]], row: int, col: int) -> tuple[bool,
         not down and not right,
         not down and not left,
     )
-
-
-def _paste_quarter_circle(
-    mask: Image.Image,
-    rect: tuple[int, int, int, int],
-    corners: tuple[bool, bool, bool, bool],
-) -> None:
-    left, top, right, bottom = rect
-    width = max(1, right - left)
-    height = max(1, bottom - top)
-
-    local = Image.new("L", (width * 2, height * 2), 0)
-    ImageDraw.Draw(local).ellipse((0, 0, width * 2, height * 2), fill=255)
-
-    crop_box = _quarter_crop_box(width, height, corners)
-    quarter = local.crop(crop_box)
-    mask.paste(255, (left, top, right, bottom), quarter)
-
-
-def _quarter_crop_box(
-    width: int,
-    height: int,
-    corners: tuple[bool, bool, bool, bool],
-) -> tuple[int, int, int, int]:
-    top_left, top_right, bottom_right, bottom_left = corners
-
-    if top_left:
-        return 0, 0, width, height
-    if top_right:
-        return width, 0, width * 2, height
-    if bottom_right:
-        return width, height, width * 2, height * 2
-    return 0, height, width, height * 2
 
 
 def _has_up(body_map: list[list[bool]], row: int, col: int) -> bool:
@@ -682,6 +567,306 @@ def _has_down(body_map: list[list[bool]], row: int, col: int) -> bool:
 
 def _has_left(body_map: list[list[bool]], row: int, col: int) -> bool:
     return col > 0 and body_map[row][col - 1]
+
+# qr_preset_studio/infrastructure/rendering/body_shapes/liquid.py
+from __future__ import annotations
+
+from PIL import Image, ImageDraw
+
+from qr_preset_studio.domain.models.preset import Preset
+from qr_preset_studio.infrastructure.rendering.body_shapes.common import (
+    free_corners,
+    iter_dark_modules,
+    module_rect,
+    paint_module_colors,
+    rect_size,
+)
+
+
+def render_liquid_body(
+    canvas: Image.Image,
+    preset: Preset,
+    layout,
+    body_map: list[list[bool]],
+) -> None:
+    body_layer = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
+    paint_module_colors(body_layer, preset, layout, body_map)
+
+    mask = Image.new("L", canvas.size, 0)
+
+    for row, col in iter_dark_modules(body_map):
+        rect = module_rect(layout, col, row)
+        tile = _liquid_tile(rect, free_corners(body_map, row, col))
+        mask.paste(tile, (rect[0], rect[1]))
+
+    body_layer.putalpha(mask)
+    canvas.alpha_composite(body_layer)
+
+
+def _liquid_tile(
+    rect: tuple[int, int, int, int],
+    corners: tuple[bool, bool, bool, bool],
+) -> Image.Image:
+    width, height = rect_size(rect)
+    free_count = sum(1 for value in corners if value)
+
+    if free_count == 0:
+        return _filled_rect_tile(width, height)
+
+    if free_count == 1:
+        return _quarter_turn_tile(width, height, _single_free_corner(corners))
+
+    if free_count == 2:
+        exposed_side = _single_connection_exposed_side(corners)
+        if exposed_side is not None:
+            return _single_connection_tile(width, height, exposed_side)
+        return _filled_rect_tile(width, height)
+
+    if free_count == 4:
+        return _circle_tile(width, height)
+
+    return _filled_rect_tile(width, height)
+
+
+def _filled_rect_tile(width: int, height: int) -> Image.Image:
+    tile = Image.new("L", (width, height), 0)
+    ImageDraw.Draw(tile).rectangle((0, 0, width - 1, height - 1), fill=255)
+    return tile
+
+
+def _circle_tile(width: int, height: int) -> Image.Image:
+    tile = Image.new("L", (width, height), 0)
+    ImageDraw.Draw(tile).ellipse((0, 0, width - 1, height - 1), fill=255)
+    return tile
+
+
+def _quarter_turn_tile(width: int, height: int, free_corner: str) -> Image.Image:
+    source = Image.new("L", (width * 2, height * 2), 0)
+    ImageDraw.Draw(source).ellipse((0, 0, (width * 2) - 1, (height * 2) - 1), fill=255)
+    return source.crop(_quarter_crop_box(width, height, free_corner))
+
+
+def _quarter_crop_box(width: int, height: int, free_corner: str) -> tuple[int, int, int, int]:
+    mapping = {
+        "top_left": (0, 0, width, height),
+        "top_right": (width, 0, width * 2, height),
+        "bottom_right": (width, height, width * 2, height * 2),
+        "bottom_left": (0, height, width, height * 2),
+    }
+    return mapping[free_corner]
+
+
+def _single_connection_tile(width: int, height: int, exposed_side: str) -> Image.Image:
+    tile = Image.new("L", (width, height), 0)
+    draw = ImageDraw.Draw(tile)
+    radius = min(width, height) // 2
+
+    if radius <= 0:
+        draw.rectangle((0, 0, width - 1, height - 1), fill=255)
+        return tile
+
+    if exposed_side == "left":
+        _fill_rect(draw, (radius, 0, width, height))
+        draw.ellipse((0, 0, (radius * 2) - 1, height - 1), fill=255)
+        return tile
+
+    if exposed_side == "right":
+        _fill_rect(draw, (0, 0, width - radius, height))
+        draw.ellipse((width - (radius * 2), 0, width - 1, height - 1), fill=255)
+        return tile
+
+    if exposed_side == "top":
+        _fill_rect(draw, (0, radius, width, height))
+        draw.ellipse((0, 0, width - 1, (radius * 2) - 1), fill=255)
+        return tile
+
+    _fill_rect(draw, (0, 0, width, height - radius))
+    draw.ellipse((0, height - (radius * 2), width - 1, height - 1), fill=255)
+    return tile
+
+
+def _single_free_corner(corners: tuple[bool, bool, bool, bool]) -> str:
+    for corner_name, enabled in zip(
+        ("top_left", "top_right", "bottom_right", "bottom_left"),
+        corners,
+    ):
+        if enabled:
+            return corner_name
+    return "top_left"
+
+
+def _single_connection_exposed_side(corners: tuple[bool, bool, bool, bool]) -> str | None:
+    top_left, top_right, bottom_right, bottom_left = corners
+
+    if top_left and bottom_left and not top_right and not bottom_right:
+        return "left"
+
+    if top_left and top_right and not bottom_right and not bottom_left:
+        return "top"
+
+    if top_right and bottom_right and not top_left and not bottom_left:
+        return "right"
+
+    if bottom_right and bottom_left and not top_left and not top_right:
+        return "bottom"
+
+    return None
+
+
+def _fill_rect(draw: ImageDraw.ImageDraw, box: tuple[int, int, int, int]) -> None:
+    left, top, right, bottom = box
+    if right <= left or bottom <= top:
+        return
+    draw.rectangle((left, top, right - 1, bottom - 1), fill=255)
+
+# qr_preset_studio/infrastructure/rendering/body_shapes/rounded.py
+from __future__ import annotations
+
+from PIL import Image, ImageDraw
+
+from qr_preset_studio.domain.models.preset import Preset
+from qr_preset_studio.infrastructure.rendering.body_shapes.common import (
+    free_corners,
+    iter_dark_modules,
+    module_rect,
+    paint_module_colors,
+    rect_size,
+)
+
+
+def render_rounded_body(
+    canvas: Image.Image,
+    preset: Preset,
+    layout,
+    body_map: list[list[bool]],
+    render_scale: float,
+) -> None:
+    requested_radius = _rounded_body_radius(preset, layout, render_scale)
+    if requested_radius <= 0:
+        paint_module_colors(canvas, preset, layout, body_map)
+        return
+
+    body_layer = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
+    paint_module_colors(body_layer, preset, layout, body_map)
+
+    mask = Image.new("L", canvas.size, 0)
+
+    for row, col in iter_dark_modules(body_map):
+        rect = module_rect(layout, col, row)
+        tile = _rounded_tile(rect, free_corners(body_map, row, col), requested_radius)
+        mask.paste(tile, (rect[0], rect[1]))
+
+    body_layer.putalpha(mask)
+    canvas.alpha_composite(body_layer)
+
+
+def _rounded_body_radius(preset: Preset, layout, render_scale: float) -> int:
+    requested = max(0, int(round(preset.rounded_body_radius_px * render_scale)))
+    if requested <= 0:
+        return 0
+
+    module_pitch = layout.active_qr_size / max(1, layout.active_modules)
+    max_radius = max(0, int(module_pitch / 2))
+    return min(requested, max_radius)
+
+
+def _rounded_tile(
+    rect: tuple[int, int, int, int],
+    corners: tuple[bool, bool, bool, bool],
+    requested_radius: int,
+) -> Image.Image:
+    width, height = rect_size(rect)
+    tile = Image.new("L", (width, height), 255)
+
+    radius = min(requested_radius, min(width, height) // 2)
+    if radius <= 0 or not any(corners):
+        return tile
+
+    draw = ImageDraw.Draw(tile)
+
+    for corner_name, enabled in zip(
+        ("top_left", "top_right", "bottom_right", "bottom_left"),
+        corners,
+    ):
+        if not enabled:
+            continue
+        _round_corner(tile, draw, width, height, radius, corner_name)
+
+    return tile
+
+
+def _round_corner(
+    tile: Image.Image,
+    draw: ImageDraw.ImageDraw,
+    width: int,
+    height: int,
+    radius: int,
+    corner_name: str,
+) -> None:
+    clear_box = _corner_clear_box(width, height, radius, corner_name)
+    _fill_rect(draw, clear_box, 0)
+
+    tile.paste(_quarter_circle(radius, corner_name), _corner_paste_pos(width, height, radius, corner_name))
+
+
+def _quarter_circle(radius: int, corner_name: str) -> Image.Image:
+    source = Image.new("L", (radius * 2, radius * 2), 0)
+    ImageDraw.Draw(source).ellipse((0, 0, (radius * 2) - 1, (radius * 2) - 1), fill=255)
+    return source.crop(_quarter_crop_box(radius, corner_name))
+
+
+def _quarter_crop_box(radius: int, corner_name: str) -> tuple[int, int, int, int]:
+    mapping = {
+        "top_left": (0, 0, radius, radius),
+        "top_right": (radius, 0, radius * 2, radius),
+        "bottom_right": (radius, radius, radius * 2, radius * 2),
+        "bottom_left": (0, radius, radius, radius * 2),
+    }
+    return mapping[corner_name]
+
+
+def _corner_paste_pos(width: int, height: int, radius: int, corner_name: str) -> tuple[int, int]:
+    mapping = {
+        "top_left": (0, 0),
+        "top_right": (width - radius, 0),
+        "bottom_right": (width - radius, height - radius),
+        "bottom_left": (0, height - radius),
+    }
+    return mapping[corner_name]
+
+
+def _corner_clear_box(width: int, height: int, radius: int, corner_name: str) -> tuple[int, int, int, int]:
+    mapping = {
+        "top_left": (0, 0, radius, radius),
+        "top_right": (width - radius, 0, width, radius),
+        "bottom_right": (width - radius, height - radius, width, height),
+        "bottom_left": (0, height - radius, radius, height),
+    }
+    return mapping[corner_name]
+
+
+def _fill_rect(draw: ImageDraw.ImageDraw, box: tuple[int, int, int, int], fill: int) -> None:
+    left, top, right, bottom = box
+    if right <= left or bottom <= top:
+        return
+    draw.rectangle((left, top, right - 1, bottom - 1), fill=fill)
+
+# qr_preset_studio/infrastructure/rendering/body_shapes/square.py
+from __future__ import annotations
+
+from PIL import Image
+
+from qr_preset_studio.domain.models.preset import Preset
+from qr_preset_studio.infrastructure.rendering.body_shapes.common import paint_module_colors
+
+
+def render_square_body(
+    canvas: Image.Image,
+    preset: Preset,
+    layout,
+    body_map: list[list[bool]],
+) -> None:
+    paint_module_colors(canvas, preset, layout, body_map)
 
 # qr_preset_studio/infrastructure/rendering/canvas.py
 from __future__ import annotations

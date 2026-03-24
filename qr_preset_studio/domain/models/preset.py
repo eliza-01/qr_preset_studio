@@ -31,6 +31,7 @@ class Preset:
 
     body_shape: str = "square"
     rounded_body_radius_px: int = 8
+    spikes_single_corner_radius_px: int = 8
     eye_frame_shape: str = "square"
     eye_ball_shape: str = "square"
 
@@ -79,6 +80,7 @@ class Preset:
         preset.qr_dpi = _clamp_int(preset.qr_dpi, 72, 2400, 300)
 
         preset.rounded_body_radius_px = _clamp_int(preset.rounded_body_radius_px, 0, 200, 8)
+        preset.spikes_single_corner_radius_px = _clamp_int(preset.spikes_single_corner_radius_px, 0, 200, 8)
 
         preset.qr_background_padding = _clamp_int(preset.qr_background_padding, 0, 500, 32)
         preset.qr_background_radius = _clamp_int(preset.qr_background_radius, 0, 200, 24)
@@ -103,6 +105,7 @@ class Preset:
             qr_dpi=self.qr_dpi,
             body_shape=self.body_shape,
             rounded_body_radius_px=max(0, int(round(self.rounded_body_radius_px * factor))),
+            spikes_single_corner_radius_px=max(0, int(round(self.spikes_single_corner_radius_px * factor))),
             eye_frame_shape=self.eye_frame_shape,
             eye_ball_shape=self.eye_ball_shape,
             qr_foreground_color=self.qr_foreground_color,
