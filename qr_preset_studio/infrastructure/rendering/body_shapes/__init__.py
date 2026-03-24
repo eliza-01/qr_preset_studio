@@ -3,6 +3,7 @@ from __future__ import annotations
 from PIL import Image
 
 from qr_preset_studio.domain.models.preset import Preset
+from qr_preset_studio.infrastructure.rendering.body_shapes.claws import render_claws_body
 from qr_preset_studio.infrastructure.rendering.body_shapes.liquid import render_liquid_body
 from qr_preset_studio.infrastructure.rendering.body_shapes.rounded import render_rounded_body
 from qr_preset_studio.infrastructure.rendering.body_shapes.spikes import render_spikes_body
@@ -26,6 +27,10 @@ def render_body(
 
     if preset.body_shape == "spikes":
         render_spikes_body(canvas, preset, layout, body_map, render_scale)
+        return
+
+    if preset.body_shape == "claws":
+        render_claws_body(canvas, preset, layout, body_map)
         return
 
     render_square_body(canvas, preset, layout, body_map)

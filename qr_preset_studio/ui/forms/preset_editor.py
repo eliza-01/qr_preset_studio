@@ -7,6 +7,7 @@ from qr_preset_studio.domain.models.preset import Preset
 from qr_preset_studio.ui.panels.actions_panel import ActionsPanel
 from qr_preset_studio.ui.panels.background_panel import BackgroundPanel
 from qr_preset_studio.ui.panels.canvas_panel import CanvasPanel
+from qr_preset_studio.ui.panels.claw_panel import ClawPanel
 from qr_preset_studio.ui.panels.content_panel import ContentPanel
 from qr_preset_studio.ui.panels.qr_card_panel import QrCardPanel
 from qr_preset_studio.ui.panels.qr_style_panel import QrStylePanel
@@ -26,6 +27,7 @@ class PresetEditor(QWidget):
         self.canvas_panel = CanvasPanel()
         self.background_panel = BackgroundPanel()
         self.qr_style_panel = QrStylePanel()
+        self.claw_panel = ClawPanel()
         self.qr_card_panel = QrCardPanel()
         self.actions_panel = ActionsPanel()
 
@@ -34,13 +36,17 @@ class PresetEditor(QWidget):
             self.canvas_panel,
             self.background_panel,
             self.qr_style_panel,
+            self.claw_panel,
             self.qr_card_panel,
         ]:
             panel.changed.connect(self.changed)
             layout.addWidget(panel)
 
+        self.qr_style_panel.body_shape_combo.currentTextChanged.connect(self._sync_shape_panels)
+
         layout.addWidget(self.actions_panel)
         layout.addStretch(1)
+        self._sync_shape_panels()
 
     def to_preset(self) -> Preset:
         return Preset(
@@ -60,6 +66,20 @@ class PresetEditor(QWidget):
             body_shape=self.qr_style_panel.body_shape_combo.currentText(),
             rounded_body_radius_px=self.qr_style_panel.rounded_body_radius_spin.value(),
             spikes_single_corner_radius_px=self.qr_style_panel.spikes_single_corner_radius_spin.value(),
+            claw_detail_scale=self.claw_panel.claw_detail_scale_spin.value(),
+            claw_curve_steps=self.claw_panel.claw_curve_steps_spin.value(),
+            claw_alternate_direction=self.claw_panel.claw_alternate_direction_check.isChecked(),
+            claw_lean_right=self.claw_panel.claw_lean_right_check.isChecked(),
+            claw_tip_x=self.claw_panel.claw_tip_x_spin.value(),
+            claw_tip_y=self.claw_panel.claw_tip_y_spin.value(),
+            claw_outer_ctrl1_x=self.claw_panel.claw_outer_ctrl1_x_spin.value(),
+            claw_outer_ctrl1_y=self.claw_panel.claw_outer_ctrl1_y_spin.value(),
+            claw_outer_ctrl2_x=self.claw_panel.claw_outer_ctrl2_x_spin.value(),
+            claw_outer_ctrl2_y=self.claw_panel.claw_outer_ctrl2_y_spin.value(),
+            claw_inner_ctrl1_x=self.claw_panel.claw_inner_ctrl1_x_spin.value(),
+            claw_inner_ctrl1_y=self.claw_panel.claw_inner_ctrl1_y_spin.value(),
+            claw_inner_ctrl2_x=self.claw_panel.claw_inner_ctrl2_x_spin.value(),
+            claw_inner_ctrl2_y=self.claw_panel.claw_inner_ctrl2_y_spin.value(),
             eye_frame_shape=self.qr_style_panel.eye_frame_combo.currentText(),
             eye_ball_shape=self.qr_style_panel.eye_ball_combo.currentText(),
             qr_foreground_color=self.qr_style_panel.qr_color_button.color(),
@@ -94,6 +114,22 @@ class PresetEditor(QWidget):
         self.qr_style_panel.body_shape_combo.setCurrentText(preset.body_shape)
         self.qr_style_panel.rounded_body_radius_spin.setValue(preset.rounded_body_radius_px)
         self.qr_style_panel.spikes_single_corner_radius_spin.setValue(preset.spikes_single_corner_radius_px)
+
+        self.claw_panel.claw_detail_scale_spin.setValue(preset.claw_detail_scale)
+        self.claw_panel.claw_curve_steps_spin.setValue(preset.claw_curve_steps)
+        self.claw_panel.claw_alternate_direction_check.setChecked(preset.claw_alternate_direction)
+        self.claw_panel.claw_lean_right_check.setChecked(preset.claw_lean_right)
+        self.claw_panel.claw_tip_x_spin.setValue(preset.claw_tip_x)
+        self.claw_panel.claw_tip_y_spin.setValue(preset.claw_tip_y)
+        self.claw_panel.claw_outer_ctrl1_x_spin.setValue(preset.claw_outer_ctrl1_x)
+        self.claw_panel.claw_outer_ctrl1_y_spin.setValue(preset.claw_outer_ctrl1_y)
+        self.claw_panel.claw_outer_ctrl2_x_spin.setValue(preset.claw_outer_ctrl2_x)
+        self.claw_panel.claw_outer_ctrl2_y_spin.setValue(preset.claw_outer_ctrl2_y)
+        self.claw_panel.claw_inner_ctrl1_x_spin.setValue(preset.claw_inner_ctrl1_x)
+        self.claw_panel.claw_inner_ctrl1_y_spin.setValue(preset.claw_inner_ctrl1_y)
+        self.claw_panel.claw_inner_ctrl2_x_spin.setValue(preset.claw_inner_ctrl2_x)
+        self.claw_panel.claw_inner_ctrl2_y_spin.setValue(preset.claw_inner_ctrl2_y)
+
         self.qr_style_panel.eye_frame_combo.setCurrentText(preset.eye_frame_shape)
         self.qr_style_panel.eye_ball_combo.setCurrentText(preset.eye_ball_shape)
         self.qr_style_panel.qr_color_button.set_color(preset.qr_foreground_color)
@@ -109,7 +145,11 @@ class PresetEditor(QWidget):
         self.qr_card_panel.qr_border_width_spin.setValue(preset.qr_border_width)
         self.qr_card_panel.qr_border_color_button.set_color(preset.qr_border_color)
 
+        self._sync_shape_panels()
         self._apply_locked_fields(preset.locked_fields)
+
+    def _sync_shape_panels(self) -> None:
+        self.claw_panel.sync_state(self.qr_style_panel.body_shape_combo.currentText() == "claws")
 
     def _collect_locked_fields(self) -> dict[str, bool]:
         return {
@@ -140,6 +180,20 @@ class PresetEditor(QWidget):
             "body_shape": self.qr_style_panel.body_shape_field,
             "rounded_body_radius_px": self.qr_style_panel.rounded_body_radius_field,
             "spikes_single_corner_radius_px": self.qr_style_panel.spikes_single_corner_radius_field,
+            "claw_detail_scale": self.claw_panel.claw_detail_scale_field,
+            "claw_curve_steps": self.claw_panel.claw_curve_steps_field,
+            "claw_alternate_direction": self.claw_panel.claw_alternate_direction_field,
+            "claw_lean_right": self.claw_panel.claw_lean_right_field,
+            "claw_tip_x": self.claw_panel.claw_tip_x_field,
+            "claw_tip_y": self.claw_panel.claw_tip_y_field,
+            "claw_outer_ctrl1_x": self.claw_panel.claw_outer_ctrl1_x_field,
+            "claw_outer_ctrl1_y": self.claw_panel.claw_outer_ctrl1_y_field,
+            "claw_outer_ctrl2_x": self.claw_panel.claw_outer_ctrl2_x_field,
+            "claw_outer_ctrl2_y": self.claw_panel.claw_outer_ctrl2_y_field,
+            "claw_inner_ctrl1_x": self.claw_panel.claw_inner_ctrl1_x_field,
+            "claw_inner_ctrl1_y": self.claw_panel.claw_inner_ctrl1_y_field,
+            "claw_inner_ctrl2_x": self.claw_panel.claw_inner_ctrl2_x_field,
+            "claw_inner_ctrl2_y": self.claw_panel.claw_inner_ctrl2_y_field,
             "eye_frame_shape": self.qr_style_panel.eye_frame_field,
             "eye_ball_shape": self.qr_style_panel.eye_ball_field,
             "qr_foreground_color": self.qr_style_panel.qr_color_field,

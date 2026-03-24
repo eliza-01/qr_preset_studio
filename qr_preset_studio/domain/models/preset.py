@@ -32,6 +32,22 @@ class Preset:
     body_shape: str = "square"
     rounded_body_radius_px: int = 8
     spikes_single_corner_radius_px: int = 8
+
+    claw_detail_scale: int = 6
+    claw_curve_steps: int = 40
+    claw_alternate_direction: bool = True
+    claw_lean_right: bool = True
+    claw_tip_x: float = 0.86
+    claw_tip_y: float = 0.06
+    claw_outer_ctrl1_x: float = 0.00
+    claw_outer_ctrl1_y: float = 0.52
+    claw_outer_ctrl2_x: float = 0.10
+    claw_outer_ctrl2_y: float = 0.10
+    claw_inner_ctrl1_x: float = 1.00
+    claw_inner_ctrl1_y: float = 0.08
+    claw_inner_ctrl2_x: float = 0.82
+    claw_inner_ctrl2_y: float = 0.70
+
     eye_frame_shape: str = "square"
     eye_ball_shape: str = "square"
 
@@ -82,6 +98,21 @@ class Preset:
         preset.rounded_body_radius_px = _clamp_int(preset.rounded_body_radius_px, 0, 200, 8)
         preset.spikes_single_corner_radius_px = _clamp_int(preset.spikes_single_corner_radius_px, 0, 200, 8)
 
+        preset.claw_detail_scale = _clamp_int(preset.claw_detail_scale, 1, 32, 6)
+        preset.claw_curve_steps = _clamp_int(preset.claw_curve_steps, 4, 200, 40)
+        preset.claw_alternate_direction = _coerce_bool(preset.claw_alternate_direction, True)
+        preset.claw_lean_right = _coerce_bool(preset.claw_lean_right, True)
+        preset.claw_tip_x = _clamp_float(preset.claw_tip_x, -2.0, 2.0, 0.86)
+        preset.claw_tip_y = _clamp_float(preset.claw_tip_y, -2.0, 2.0, 0.06)
+        preset.claw_outer_ctrl1_x = _clamp_float(preset.claw_outer_ctrl1_x, -2.0, 2.0, 0.00)
+        preset.claw_outer_ctrl1_y = _clamp_float(preset.claw_outer_ctrl1_y, -2.0, 2.0, 0.52)
+        preset.claw_outer_ctrl2_x = _clamp_float(preset.claw_outer_ctrl2_x, -2.0, 2.0, 0.10)
+        preset.claw_outer_ctrl2_y = _clamp_float(preset.claw_outer_ctrl2_y, -2.0, 2.0, 0.10)
+        preset.claw_inner_ctrl1_x = _clamp_float(preset.claw_inner_ctrl1_x, -2.0, 2.0, 1.00)
+        preset.claw_inner_ctrl1_y = _clamp_float(preset.claw_inner_ctrl1_y, -2.0, 2.0, 0.08)
+        preset.claw_inner_ctrl2_x = _clamp_float(preset.claw_inner_ctrl2_x, -2.0, 2.0, 0.82)
+        preset.claw_inner_ctrl2_y = _clamp_float(preset.claw_inner_ctrl2_y, -2.0, 2.0, 0.70)
+
         preset.qr_background_padding = _clamp_int(preset.qr_background_padding, 0, 500, 32)
         preset.qr_background_radius = _clamp_int(preset.qr_background_radius, 0, 200, 24)
         preset.qr_border_width = _clamp_int(preset.qr_border_width, 0, 50, 4)
@@ -106,6 +137,20 @@ class Preset:
             body_shape=self.body_shape,
             rounded_body_radius_px=max(0, int(round(self.rounded_body_radius_px * factor))),
             spikes_single_corner_radius_px=max(0, int(round(self.spikes_single_corner_radius_px * factor))),
+            claw_detail_scale=self.claw_detail_scale,
+            claw_curve_steps=self.claw_curve_steps,
+            claw_alternate_direction=self.claw_alternate_direction,
+            claw_lean_right=self.claw_lean_right,
+            claw_tip_x=self.claw_tip_x,
+            claw_tip_y=self.claw_tip_y,
+            claw_outer_ctrl1_x=self.claw_outer_ctrl1_x,
+            claw_outer_ctrl1_y=self.claw_outer_ctrl1_y,
+            claw_outer_ctrl2_x=self.claw_outer_ctrl2_x,
+            claw_outer_ctrl2_y=self.claw_outer_ctrl2_y,
+            claw_inner_ctrl1_x=self.claw_inner_ctrl1_x,
+            claw_inner_ctrl1_y=self.claw_inner_ctrl1_y,
+            claw_inner_ctrl2_x=self.claw_inner_ctrl2_x,
+            claw_inner_ctrl2_y=self.claw_inner_ctrl2_y,
             eye_frame_shape=self.eye_frame_shape,
             eye_ball_shape=self.eye_ball_shape,
             qr_foreground_color=self.qr_foreground_color,
@@ -132,6 +177,31 @@ def _clamp_int(value: Any, minimum: int, maximum: int, fallback: int) -> int:
     except (TypeError, ValueError):
         return fallback
     return max(minimum, min(maximum, parsed))
+
+
+def _clamp_float(value: Any, minimum: float, maximum: float, fallback: float) -> float:
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return fallback
+    return max(minimum, min(maximum, parsed))
+
+
+def _coerce_bool(value: Any, fallback: bool) -> bool:
+    if isinstance(value, bool):
+        return value
+
+    if isinstance(value, (int, float)):
+        return value != 0
+
+    if isinstance(value, str):
+        lowered = value.strip().lower()
+        if lowered in {"true", "1", "yes", "on"}:
+            return True
+        if lowered in {"false", "0", "no", "off"}:
+            return False
+
+    return fallback
 
 
 def _legacy_body_radius(value: Any) -> int:

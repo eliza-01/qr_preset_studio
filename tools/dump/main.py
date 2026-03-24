@@ -45,7 +45,7 @@ ALL_FILES: bool = True
 
 # Директории (относительно корня проекта), из которых собираем ВСЁ рекурсивно.
 INCLUDE_DIRS: List[str] = [
-    "qr_preset_studio",
+    "qr_preset_studio/ui",
     # "data",
     # "src/app/ui_relative_compare",
     # "fxrelval_mt5/src",
