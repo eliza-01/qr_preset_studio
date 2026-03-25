@@ -43,7 +43,7 @@ def paint_module_colors(
     for row, col in iter_dark_modules(body_map):
         draw.rectangle(
             module_rect(layout, col, row),
-            fill=module_color(col, row, layout.active_modules, preset),
+            fill=module_color(col, row, layout.active_modules, layout.active_qr_size, preset),
         )
 
 

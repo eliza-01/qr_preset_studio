@@ -2102,6 +2102,14 @@ from qr_preset_studio.ui.panels.qr_style_panel import QrStylePanel
 from qr_preset_studio.ui.widgets.lockable_field import LockableField
 
 
+_DEFAULT_LOCKED_FIELDS = {
+    "qr_version",
+    "qr_error_correction",
+    "qr_mask_pattern",
+    "qr_optimize",
+}
+
+
 class PresetEditor(QWidget):
     changed = Signal()
 
@@ -2243,12 +2251,11 @@ class PresetEditor(QWidget):
         return {
             key: field.is_locked()
             for key, field in self._lock_fields().items()
-            if field.is_locked()
         }
 
     def _apply_locked_fields(self, locked_fields: dict[str, bool]) -> None:
         for key, field in self._lock_fields().items():
-            field.set_locked(bool(locked_fields.get(key, False)))
+            field.set_locked(bool(locked_fields.get(key, key in _DEFAULT_LOCKED_FIELDS)))
 
     def _lock_fields(self) -> dict[str, LockableField]:
         return {
@@ -2350,7 +2357,6 @@ from __future__ import annotations
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (
     QFormLayout,
-    QGroupBox,
     QHBoxLayout,
     QLineEdit,
     QPushButton,
@@ -2358,18 +2364,24 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from qr_preset_studio.ui.widgets.collapsible_section import CollapsibleSection
 from qr_preset_studio.ui.widgets.lockable_field import LockableField
 
 
-class BackgroundPanel(QGroupBox):
+class BackgroundPanel(QWidget):
     changed = Signal()
     browse_requested = Signal()
     clear_requested = Signal()
 
     def __init__(self) -> None:
-        super().__init__("Фон")
-        form = QFormLayout(self)
-        form.setSpacing(10)
+        super().__init__()
+
+        root = QVBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(0)
+
+        self.section = CollapsibleSection("Фон")
+        root.addWidget(self.section)
 
         self.background_path_input = QLineEdit()
         self.background_path_input.setReadOnly(True)
@@ -2377,6 +2389,8 @@ class BackgroundPanel(QGroupBox):
         self.clear_button = QPushButton("Сбросить")
 
         buttons = QHBoxLayout()
+        buttons.setContentsMargins(0, 0, 0, 0)
+        buttons.setSpacing(8)
         buttons.addWidget(self.browse_button)
         buttons.addWidget(self.clear_button)
 
@@ -2388,7 +2402,17 @@ class BackgroundPanel(QGroupBox):
         bg_layout.addLayout(buttons)
 
         self.background_field = LockableField(background_widget)
+
+        content = QWidget()
+        form = QFormLayout(content)
+        form.setSpacing(10)
         form.addRow("Изображение", self.background_field)
+
+        content_layout = QVBoxLayout()
+        content_layout.setContentsMargins(0, 0, 0, 0)
+        content_layout.addWidget(content)
+        self.section.set_content_layout(content_layout)
+        self.section.set_expanded(False)
 
         self.browse_button.clicked.connect(self.browse_requested)
         self.clear_button.clicked.connect(self.clear_requested)
@@ -2401,7 +2425,16 @@ class BackgroundPanel(QGroupBox):
 from __future__ import annotations
 
 from PySide6.QtCore import Signal
-from PySide6.QtWidgets import QFormLayout, QGroupBox, QSpinBox
+from PySide6.QtWidgets import (
+    QFormLayout,
+    QGroupBox,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QSpinBox,
+    QVBoxLayout,
+    QWidget,
+)
 
 from qr_preset_studio.ui.widgets.color_button import ColorButton
 from qr_preset_studio.ui.widgets.lockable_field import LockableField
@@ -2412,24 +2445,52 @@ class CanvasPanel(QGroupBox):
 
     def __init__(self) -> None:
         super().__init__("Итоговое изображение")
-        form = QFormLayout(self)
-        form.setSpacing(10)
+        root = QVBoxLayout(self)
+        root.setSpacing(10)
 
         self.canvas_width_spin = _spin(256, 8000, " px")
         self.canvas_height_spin = _spin(256, 8000, " px")
         self.canvas_bg_color_button = ColorButton("#F3F4F6", "Цвет фона")
+        self.swap_dimensions_button = QPushButton("⇄")
+        self.swap_dimensions_button.setFixedWidth(42)
+        self.swap_dimensions_button.setToolTip("Поменять местами ширину и высоту")
 
         self.canvas_width_field = LockableField(self.canvas_width_spin)
         self.canvas_height_field = LockableField(self.canvas_height_spin)
         self.canvas_bg_color_field = LockableField(self.canvas_bg_color_button)
 
-        form.addRow("Ширина", self.canvas_width_field)
-        form.addRow("Высота", self.canvas_height_field)
+        form = QFormLayout()
+        form.setSpacing(10)
+        form.addRow(
+            _dimensions_row(
+                ("Ширина", self.canvas_width_field),
+                ("Высота", self.canvas_height_field),
+                self.swap_dimensions_button,
+            )
+        )
         form.addRow("Цвет фона", self.canvas_bg_color_field)
+        root.addLayout(form)
 
         self.canvas_width_spin.valueChanged.connect(self.changed)
         self.canvas_height_spin.valueChanged.connect(self.changed)
         self.canvas_bg_color_button.clicked.connect(self.changed)
+        self.swap_dimensions_button.clicked.connect(self._swap_dimensions)
+        self.canvas_width_field.state_changed.connect(self._sync_swap_button_state)
+        self.canvas_height_field.state_changed.connect(self._sync_swap_button_state)
+        self._sync_swap_button_state()
+
+    def _swap_dimensions(self) -> None:
+        if not self.swap_dimensions_button.isEnabled():
+            return
+        width = self.canvas_width_spin.value()
+        height = self.canvas_height_spin.value()
+        self.canvas_width_spin.setValue(height)
+        self.canvas_height_spin.setValue(width)
+
+    def _sync_swap_button_state(self) -> None:
+        self.swap_dimensions_button.setEnabled(
+            self.canvas_width_spin.isEnabled() and self.canvas_height_spin.isEnabled()
+        )
 
 
 def _spin(minimum: int, maximum: int, suffix: str = "") -> QSpinBox:
@@ -2439,6 +2500,42 @@ def _spin(minimum: int, maximum: int, suffix: str = "") -> QSpinBox:
     if suffix:
         spin.setSuffix(suffix)
     return spin
+
+
+def _dimensions_row(
+    left: tuple[str, QWidget],
+    right: tuple[str, QWidget],
+    swap_button: QPushButton,
+) -> QWidget:
+    row = QWidget()
+    layout = QHBoxLayout(row)
+    layout.setContentsMargins(0, 0, 0, 0)
+    layout.setSpacing(10)
+    layout.addWidget(_field_column(*left), 1)
+    layout.addWidget(_field_column(*right), 1)
+    layout.addWidget(_swap_column(swap_button))
+    return row
+
+
+def _field_column(title: str, control: QWidget) -> QWidget:
+    column = QWidget()
+    layout = QVBoxLayout(column)
+    layout.setContentsMargins(0, 0, 0, 0)
+    layout.setSpacing(6)
+    layout.addWidget(QLabel(title))
+    layout.addWidget(control)
+    return column
+
+
+def _swap_column(button: QPushButton) -> QWidget:
+    column = QWidget()
+    layout = QVBoxLayout(column)
+    layout.setContentsMargins(0, 0, 0, 0)
+    layout.setSpacing(6)
+    layout.addWidget(QLabel("Инверсия"))
+    layout.addWidget(button)
+    layout.addStretch(1)
+    return column
 
 # qr_preset_studio/ui/panels/claw_panel.py
 from __future__ import annotations
@@ -2605,13 +2702,24 @@ def _float_spin(minimum: float, maximum: float) -> QDoubleSpinBox:
 from __future__ import annotations
 
 from PySide6.QtCore import Signal
-from PySide6.QtWidgets import QComboBox, QFormLayout, QGroupBox, QLineEdit, QSpinBox
+from PySide6.QtWidgets import (
+    QComboBox,
+    QFormLayout,
+    QGroupBox,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QSpinBox,
+    QVBoxLayout,
+    QWidget,
+)
 
 from qr_preset_studio.domain.constants import (
     QR_ERROR_CORRECTION_LEVELS,
     QR_MASK_PATTERN_VALUES,
     QR_VERSION_VALUES,
 )
+from qr_preset_studio.ui.widgets.collapsible_section import CollapsibleSection
 from qr_preset_studio.ui.widgets.lockable_field import LockableField
 
 
@@ -2620,8 +2728,8 @@ class ContentPanel(QGroupBox):
 
     def __init__(self) -> None:
         super().__init__("QR")
-        form = QFormLayout(self)
-        form.setSpacing(10)
+        root = QVBoxLayout(self)
+        root.setSpacing(10)
 
         self.link_input = QLineEdit()
         self.link_input.setPlaceholderText("https://example.com")
@@ -2636,9 +2744,9 @@ class ContentPanel(QGroupBox):
         self.qr_offset_x_spin = _spin(-5000, 5000, " px")
         self.qr_offset_y_spin = _spin(-5000, 5000, " px")
 
-        self.qr_version_combo.setCurrentText("auto")
-        self.qr_error_correction_combo.setCurrentText("H")
-        self.qr_mask_pattern_combo.setCurrentText("auto")
+        self.qr_version_combo.setCurrentText("3")
+        self.qr_error_correction_combo.setCurrentText("M")
+        self.qr_mask_pattern_combo.setCurrentText("6")
         self.qr_optimize_spin.setValue(20)
         self.qr_dpi_spin.setValue(300)
 
@@ -2652,15 +2760,38 @@ class ContentPanel(QGroupBox):
         self.qr_offset_x_field = LockableField(self.qr_offset_x_spin)
         self.qr_offset_y_field = LockableField(self.qr_offset_y_spin)
 
+        for field in [
+            self.qr_version_field,
+            self.qr_error_correction_field,
+            self.qr_mask_pattern_field,
+            self.qr_optimize_field,
+        ]:
+            field.set_locked(True)
+
+        form = QFormLayout()
+        form.setSpacing(10)
         form.addRow("Ссылка", self.link_field)
-        form.addRow("Version", self.qr_version_field)
-        form.addRow("ECC", self.qr_error_correction_field)
-        form.addRow("Mask", self.qr_mask_pattern_field)
-        form.addRow("Optimize", self.qr_optimize_field)
-        form.addRow("QR DPI", self.qr_dpi_field)
-        form.addRow("Размер QR", self.qr_scale_field)
-        form.addRow("Сдвиг X", self.qr_offset_x_field)
-        form.addRow("Сдвиг Y", self.qr_offset_y_field)
+        form.addRow(_two_field_row(("QR DPI", self.qr_dpi_field), ("Размер QR", self.qr_scale_field)))
+        form.addRow(_two_field_row(("Сдвиг X", self.qr_offset_x_field), ("Сдвиг Y", self.qr_offset_y_field)))
+        root.addLayout(form)
+
+        self.advanced_section = CollapsibleSection("default: Version (3), ECC (M), MASK (6), Optimize (20)")
+        advanced_form = QFormLayout()
+        advanced_form.setSpacing(10)
+        advanced_form.addRow("Version", self.qr_version_field)
+        advanced_form.addRow("ECC", self.qr_error_correction_field)
+        advanced_form.addRow("MASK", self.qr_mask_pattern_field)
+        advanced_form.addRow("Optimize", self.qr_optimize_field)
+
+        advanced_content = QWidget()
+        advanced_content.setLayout(advanced_form)
+
+        advanced_layout = QVBoxLayout()
+        advanced_layout.setContentsMargins(0, 0, 0, 0)
+        advanced_layout.addWidget(advanced_content)
+        self.advanced_section.set_content_layout(advanced_layout)
+        self.advanced_section.set_expanded(False)
+        root.addWidget(self.advanced_section)
 
         self.link_input.textChanged.connect(self.changed)
         self.qr_version_combo.currentTextChanged.connect(self.changed)
@@ -2686,6 +2817,28 @@ def _combo(values: list[str]) -> QComboBox:
     combo = QComboBox()
     combo.addItems(values)
     return combo
+
+
+def _two_field_row(left: tuple[str, QWidget], right: tuple[str, QWidget]) -> QWidget:
+    row = QWidget()
+    layout = QHBoxLayout(row)
+    layout.setContentsMargins(0, 0, 0, 0)
+    layout.setSpacing(10)
+    layout.addWidget(_field_column(*left), 1)
+    layout.addWidget(_field_column(*right), 1)
+    return row
+
+
+def _field_column(title: str, control: QWidget) -> QWidget:
+    column = QWidget()
+    layout = QVBoxLayout(column)
+    layout.setContentsMargins(0, 0, 0, 0)
+    layout.setSpacing(6)
+
+    label = QLabel(title)
+    layout.addWidget(label)
+    layout.addWidget(control)
+    return column
 
 # qr_preset_studio/ui/panels/preview_panel.py
 from __future__ import annotations
@@ -2766,19 +2919,25 @@ class PreviewPanel(QWidget):
 from __future__ import annotations
 
 from PySide6.QtCore import Signal
-from PySide6.QtWidgets import QCheckBox, QFormLayout, QGroupBox, QSpinBox
+from PySide6.QtWidgets import QCheckBox, QFormLayout, QSpinBox, QVBoxLayout, QWidget
 
+from qr_preset_studio.ui.widgets.collapsible_section import CollapsibleSection
 from qr_preset_studio.ui.widgets.color_button import ColorButton
 from qr_preset_studio.ui.widgets.lockable_field import LockableField
 
 
-class QrCardPanel(QGroupBox):
+class QrCardPanel(QWidget):
     changed = Signal()
 
     def __init__(self) -> None:
-        super().__init__("Фон и границы QR")
-        form = QFormLayout(self)
-        form.setSpacing(10)
+        super().__init__()
+
+        root = QVBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(0)
+
+        self.section = CollapsibleSection("Фон и границы QR")
+        root.addWidget(self.section)
 
         self.qr_background_enabled_check = QCheckBox("Показывать фон QR")
         self.qr_background_color_button = ColorButton("#FFFFFF", "Цвет фона QR")
@@ -2794,12 +2953,21 @@ class QrCardPanel(QGroupBox):
         self.qr_border_width_field = LockableField(self.qr_border_width_spin)
         self.qr_border_color_field = LockableField(self.qr_border_color_button)
 
+        content = QWidget()
+        form = QFormLayout(content)
+        form.setSpacing(10)
         form.addRow("Показ", self.qr_background_enabled_field)
         form.addRow("Цвет", self.qr_background_color_field)
         form.addRow("Отступы", self.qr_background_padding_field)
         form.addRow("Скругление", self.qr_background_radius_field)
         form.addRow("Толщина границы", self.qr_border_width_field)
         form.addRow("Цвет границы", self.qr_border_color_field)
+
+        content_layout = QVBoxLayout()
+        content_layout.setContentsMargins(0, 0, 0, 0)
+        content_layout.addWidget(content)
+        self.section.set_content_layout(content_layout)
+        self.section.set_expanded(False)
 
         self.qr_background_enabled_check.toggled.connect(self.changed)
         self.qr_background_padding_spin.valueChanged.connect(self.changed)
@@ -3013,11 +3181,13 @@ class ColorButton(QPushButton):
 # qr_preset_studio/ui/widgets/lockable_field.py
 from __future__ import annotations
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import QHBoxLayout, QToolButton, QWidget
 
 
 class LockableField(QWidget):
+    state_changed = Signal()
+
     def __init__(self, control: QWidget, parent=None) -> None:
         super().__init__(parent)
         self._control = control
@@ -3065,6 +3235,7 @@ class LockableField(QWidget):
         self.lock_button.setToolTip(
             "Разблокировать настройку" if self.is_locked() else "Заблокировать настройку"
         )
+        self.state_changed.emit()
 
 # qr_preset_studio/ui/windows/__init__.py
 __all__ = []

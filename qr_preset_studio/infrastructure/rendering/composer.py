@@ -156,6 +156,7 @@ def _draw_finders(canvas: Image.Image, preset: Preset, layout: QrLayout, origins
             origin_col + ((FINDER_SIZE - 1) / 2),
             origin_row + ((FINDER_SIZE - 1) / 2),
             layout.active_modules,
+            layout.active_qr_size,
             preset,
         )
         draw_eye_frame(
@@ -182,6 +183,7 @@ def _draw_finders(canvas: Image.Image, preset: Preset, layout: QrLayout, origins
             ball_col + ((FINDER_BALL_SIZE - 1) / 2),
             ball_row + ((FINDER_BALL_SIZE - 1) / 2),
             layout.active_modules,
+            layout.active_qr_size,
             preset,
         )
         draw_eye_ball(

@@ -55,6 +55,10 @@ class Preset:
     gradient_enabled: bool = False
     gradient_color: str = "#2563EB"
     gradient_direction: str = "horizontal"
+    gradient_offset_horizontal_px: int = 0
+    gradient_offset_vertical_px: int = 0
+    gradient_offset_diagonal_down_px: int = 0
+    gradient_offset_diagonal_up_px: int = 0
 
     qr_background_enabled: bool = True
     qr_background_color: str = "#FFFFFF"
@@ -113,6 +117,21 @@ class Preset:
         preset.claw_inner_ctrl2_x = _clamp_float(preset.claw_inner_ctrl2_x, -2.0, 2.0, 0.82)
         preset.claw_inner_ctrl2_y = _clamp_float(preset.claw_inner_ctrl2_y, -2.0, 2.0, 0.70)
 
+        preset.gradient_offset_horizontal_px = _clamp_int(preset.gradient_offset_horizontal_px, -5000, 5000, 0)
+        preset.gradient_offset_vertical_px = _clamp_int(preset.gradient_offset_vertical_px, -5000, 5000, 0)
+        preset.gradient_offset_diagonal_down_px = _clamp_int(
+            preset.gradient_offset_diagonal_down_px,
+            -5000,
+            5000,
+            0,
+        )
+        preset.gradient_offset_diagonal_up_px = _clamp_int(
+            preset.gradient_offset_diagonal_up_px,
+            -5000,
+            5000,
+            0,
+        )
+
         preset.qr_background_padding = _clamp_int(preset.qr_background_padding, 0, 500, 32)
         preset.qr_background_radius = _clamp_int(preset.qr_background_radius, 0, 200, 24)
         preset.qr_border_width = _clamp_int(preset.qr_border_width, 0, 50, 4)
@@ -157,6 +176,10 @@ class Preset:
             gradient_enabled=self.gradient_enabled,
             gradient_color=self.gradient_color,
             gradient_direction=self.gradient_direction,
+            gradient_offset_horizontal_px=int(round(self.gradient_offset_horizontal_px * factor)),
+            gradient_offset_vertical_px=int(round(self.gradient_offset_vertical_px * factor)),
+            gradient_offset_diagonal_down_px=int(round(self.gradient_offset_diagonal_down_px * factor)),
+            gradient_offset_diagonal_up_px=int(round(self.gradient_offset_diagonal_up_px * factor)),
             qr_background_enabled=self.qr_background_enabled,
             qr_background_color=self.qr_background_color,
             qr_background_padding=max(0, int(round(self.qr_background_padding * factor))),

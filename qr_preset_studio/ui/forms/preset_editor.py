@@ -94,6 +94,10 @@ class PresetEditor(QWidget):
             gradient_enabled=self.qr_style_panel.gradient_enabled_check.isChecked(),
             gradient_color=self.qr_style_panel.gradient_color_button.color(),
             gradient_direction=self.qr_style_panel.gradient_direction_combo.currentText(),
+            gradient_offset_horizontal_px=self.qr_style_panel.gradient_offset_horizontal_spin.value(),
+            gradient_offset_vertical_px=self.qr_style_panel.gradient_offset_vertical_spin.value(),
+            gradient_offset_diagonal_down_px=self.qr_style_panel.gradient_offset_diagonal_down_spin.value(),
+            gradient_offset_diagonal_up_px=self.qr_style_panel.gradient_offset_diagonal_up_spin.value(),
             qr_background_enabled=self.qr_card_panel.qr_background_enabled_check.isChecked(),
             qr_background_color=self.qr_card_panel.qr_background_color_button.color(),
             qr_background_padding=self.qr_card_panel.qr_background_padding_spin.value(),
@@ -144,6 +148,10 @@ class PresetEditor(QWidget):
         self.qr_style_panel.gradient_enabled_check.setChecked(preset.gradient_enabled)
         self.qr_style_panel.gradient_color_button.set_color(preset.gradient_color)
         self.qr_style_panel.gradient_direction_combo.setCurrentText(preset.gradient_direction)
+        self.qr_style_panel.gradient_offset_horizontal_spin.setValue(preset.gradient_offset_horizontal_px)
+        self.qr_style_panel.gradient_offset_vertical_spin.setValue(preset.gradient_offset_vertical_px)
+        self.qr_style_panel.gradient_offset_diagonal_down_spin.setValue(preset.gradient_offset_diagonal_down_px)
+        self.qr_style_panel.gradient_offset_diagonal_up_spin.setValue(preset.gradient_offset_diagonal_up_px)
         self.qr_style_panel.sync_state()
 
         self.qr_card_panel.qr_background_enabled_check.setChecked(preset.qr_background_enabled)
@@ -207,6 +215,10 @@ class PresetEditor(QWidget):
             "gradient_enabled": self.qr_style_panel.gradient_enabled_field,
             "gradient_color": self.qr_style_panel.gradient_color_field,
             "gradient_direction": self.qr_style_panel.gradient_direction_field,
+            "gradient_offset_horizontal_px": self.qr_style_panel.gradient_offset_horizontal_field,
+            "gradient_offset_vertical_px": self.qr_style_panel.gradient_offset_vertical_field,
+            "gradient_offset_diagonal_down_px": self.qr_style_panel.gradient_offset_diagonal_down_field,
+            "gradient_offset_diagonal_up_px": self.qr_style_panel.gradient_offset_diagonal_up_field,
             "qr_background_enabled": self.qr_card_panel.qr_background_enabled_field,
             "qr_background_color": self.qr_card_panel.qr_background_color_field,
             "qr_background_padding": self.qr_card_panel.qr_background_padding_field,
