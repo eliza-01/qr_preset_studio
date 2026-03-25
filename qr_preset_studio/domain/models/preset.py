@@ -19,6 +19,9 @@ class Preset:
     canvas_height: int = 1200
     canvas_background_color: str = "#F3F4F6"
     background_image_path: str = ""
+    background_scale_percent: int = 100
+    background_offset_x: int = 0
+    background_offset_y: int = 0
 
     qr_scale_percent: int = 42
     qr_offset_x: int = 0
@@ -91,6 +94,10 @@ class Preset:
 
         preset.canvas_width = _clamp_int(preset.canvas_width, 256, 8000, 1200)
         preset.canvas_height = _clamp_int(preset.canvas_height, 256, 8000, 1200)
+        preset.background_scale_percent = _clamp_int(preset.background_scale_percent, 1, 1000, 100)
+        preset.background_offset_x = _clamp_int(preset.background_offset_x, -5000, 5000, 0)
+        preset.background_offset_y = _clamp_int(preset.background_offset_y, -5000, 5000, 0)
+
         preset.qr_scale_percent = _clamp_int(preset.qr_scale_percent, 10, 90, 42)
         preset.qr_offset_x = _clamp_int(preset.qr_offset_x, -5000, 5000, 0)
         preset.qr_offset_y = _clamp_int(preset.qr_offset_y, -5000, 5000, 0)
@@ -145,6 +152,9 @@ class Preset:
             canvas_height=max(1, int(round(self.canvas_height * factor))),
             canvas_background_color=self.canvas_background_color,
             background_image_path=self.background_image_path,
+            background_scale_percent=self.background_scale_percent,
+            background_offset_x=int(round(self.background_offset_x * factor)),
+            background_offset_y=int(round(self.background_offset_y * factor)),
             qr_scale_percent=self.qr_scale_percent,
             qr_offset_x=int(round(self.qr_offset_x * factor)),
             qr_offset_y=int(round(self.qr_offset_y * factor)),

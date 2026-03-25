@@ -63,6 +63,9 @@ class PresetEditor(QWidget):
             canvas_height=self.canvas_panel.canvas_height_spin.value(),
             canvas_background_color=self.canvas_panel.canvas_bg_color_button.color(),
             background_image_path=self.background_panel.background_path_input.text().strip(),
+            background_scale_percent=self.background_panel.background_scale_spin.value(),
+            background_offset_x=self.background_panel.background_offset_x_spin.value(),
+            background_offset_y=self.background_panel.background_offset_y_spin.value(),
             qr_scale_percent=self.content_panel.qr_scale_spin.value(),
             qr_offset_x=self.content_panel.qr_offset_x_spin.value(),
             qr_offset_y=self.content_panel.qr_offset_y_spin.value(),
@@ -113,6 +116,9 @@ class PresetEditor(QWidget):
         self.canvas_panel.canvas_height_spin.setValue(preset.canvas_height)
         self.canvas_panel.canvas_bg_color_button.set_color(preset.canvas_background_color)
         self.background_panel.set_background_path(preset.background_image_path)
+        self.background_panel.background_scale_spin.setValue(preset.background_scale_percent)
+        self.background_panel.background_offset_x_spin.setValue(preset.background_offset_x)
+        self.background_panel.background_offset_y_spin.setValue(preset.background_offset_y)
 
         self.content_panel.qr_scale_spin.setValue(preset.qr_scale_percent)
         self.content_panel.qr_offset_x_spin.setValue(preset.qr_offset_x)
@@ -192,6 +198,9 @@ class PresetEditor(QWidget):
             "canvas_height": self.canvas_panel.canvas_height_field,
             "canvas_background_color": self.canvas_panel.canvas_bg_color_field,
             "background_image_path": self.background_panel.background_field,
+            "background_scale_percent": self.background_panel.background_scale_field,
+            "background_offset_x": self.background_panel.background_offset_x_field,
+            "background_offset_y": self.background_panel.background_offset_y_field,
             "body_shape": self.qr_style_panel.body_shape_field,
             "rounded_body_radius_px": self.qr_style_panel.rounded_body_radius_field,
             "spikes_single_corner_radius_px": self.qr_style_panel.spikes_single_corner_radius_field,

@@ -235,6 +235,10 @@ class Preset:
     gradient_enabled: bool = False
     gradient_color: str = "#2563EB"
     gradient_direction: str = "horizontal"
+    gradient_offset_horizontal_px: int = 0
+    gradient_offset_vertical_px: int = 0
+    gradient_offset_diagonal_down_px: int = 0
+    gradient_offset_diagonal_up_px: int = 0
 
     qr_background_enabled: bool = True
     qr_background_color: str = "#FFFFFF"
@@ -293,6 +297,21 @@ class Preset:
         preset.claw_inner_ctrl2_x = _clamp_float(preset.claw_inner_ctrl2_x, -2.0, 2.0, 0.82)
         preset.claw_inner_ctrl2_y = _clamp_float(preset.claw_inner_ctrl2_y, -2.0, 2.0, 0.70)
 
+        preset.gradient_offset_horizontal_px = _clamp_int(preset.gradient_offset_horizontal_px, -5000, 5000, 0)
+        preset.gradient_offset_vertical_px = _clamp_int(preset.gradient_offset_vertical_px, -5000, 5000, 0)
+        preset.gradient_offset_diagonal_down_px = _clamp_int(
+            preset.gradient_offset_diagonal_down_px,
+            -5000,
+            5000,
+            0,
+        )
+        preset.gradient_offset_diagonal_up_px = _clamp_int(
+            preset.gradient_offset_diagonal_up_px,
+            -5000,
+            5000,
+            0,
+        )
+
         preset.qr_background_padding = _clamp_int(preset.qr_background_padding, 0, 500, 32)
         preset.qr_background_radius = _clamp_int(preset.qr_background_radius, 0, 200, 24)
         preset.qr_border_width = _clamp_int(preset.qr_border_width, 0, 50, 4)
@@ -337,6 +356,10 @@ class Preset:
             gradient_enabled=self.gradient_enabled,
             gradient_color=self.gradient_color,
             gradient_direction=self.gradient_direction,
+            gradient_offset_horizontal_px=int(round(self.gradient_offset_horizontal_px * factor)),
+            gradient_offset_vertical_px=int(round(self.gradient_offset_vertical_px * factor)),
+            gradient_offset_diagonal_down_px=int(round(self.gradient_offset_diagonal_down_px * factor)),
+            gradient_offset_diagonal_up_px=int(round(self.gradient_offset_diagonal_up_px * factor)),
             qr_background_enabled=self.qr_background_enabled,
             qr_background_color=self.qr_background_color,
             qr_background_padding=max(0, int(round(self.qr_background_padding * factor))),
@@ -840,7 +863,7 @@ def paint_module_colors(
     for row, col in iter_dark_modules(body_map):
         draw.rectangle(
             module_rect(layout, col, row),
-            fill=module_color(col, row, layout.active_modules, preset),
+            fill=module_color(col, row, layout.active_modules, layout.active_qr_size, preset),
         )
 
 
@@ -1486,25 +1509,47 @@ from PIL import ImageColor
 from qr_preset_studio.domain.models.preset import Preset
 
 
-def module_color(col: float, row: float, active_modules: int, preset: Preset) -> tuple[int, int, int]:
+def module_color(
+    col: float,
+    row: float,
+    active_modules: int,
+    active_qr_size: int,
+    preset: Preset,
+) -> tuple[int, int, int]:
     start = ImageColor.getrgb(preset.qr_foreground_color)
     if not preset.gradient_enabled:
         return start
 
     end = ImageColor.getrgb(preset.gradient_color)
+    module_pitch = active_qr_size / max(1, active_modules)
     max_index = max(1, active_modules - 1)
+    max_axis_px = max(1.0, max_index * module_pitch)
+
+    x = float(col) * module_pitch
+    y = float(row) * module_pitch
+    offset = _gradient_offset_px(preset)
 
     if preset.gradient_direction == "horizontal":
-        t = col / max_index
+        t = (x - offset) / max_axis_px
     elif preset.gradient_direction == "vertical":
-        t = row / max_index
+        t = (y - offset) / max_axis_px
     elif preset.gradient_direction == "diagonal_up":
-        t = (col + (max_index - row)) / (max_index * 2)
+        t = (x + (max_axis_px - y) - offset) / (max_axis_px * 2.0)
     else:
-        t = (col + row) / (max_index * 2)
+        t = (x + y - offset) / (max_axis_px * 2.0)
 
     t = max(0.0, min(1.0, t))
     return tuple(int(round(a + (b - a) * t)) for a, b in zip(start, end))
+
+
+def _gradient_offset_px(preset: Preset) -> int:
+    if preset.gradient_direction == "horizontal":
+        return preset.gradient_offset_horizontal_px
+    if preset.gradient_direction == "vertical":
+        return preset.gradient_offset_vertical_px
+    if preset.gradient_direction == "diagonal_up":
+        return preset.gradient_offset_diagonal_up_px
+    return preset.gradient_offset_diagonal_down_px
 
 # qr_preset_studio/infrastructure/rendering/composer.py
 from __future__ import annotations
@@ -1665,6 +1710,7 @@ def _draw_finders(canvas: Image.Image, preset: Preset, layout: QrLayout, origins
             origin_col + ((FINDER_SIZE - 1) / 2),
             origin_row + ((FINDER_SIZE - 1) / 2),
             layout.active_modules,
+            layout.active_qr_size,
             preset,
         )
         draw_eye_frame(
@@ -1691,6 +1737,7 @@ def _draw_finders(canvas: Image.Image, preset: Preset, layout: QrLayout, origins
             ball_col + ((FINDER_BALL_SIZE - 1) / 2),
             ball_row + ((FINDER_BALL_SIZE - 1) / 2),
             layout.active_modules,
+            layout.active_qr_size,
             preset,
         )
         draw_eye_ball(
@@ -2182,6 +2229,10 @@ class PresetEditor(QWidget):
             gradient_enabled=self.qr_style_panel.gradient_enabled_check.isChecked(),
             gradient_color=self.qr_style_panel.gradient_color_button.color(),
             gradient_direction=self.qr_style_panel.gradient_direction_combo.currentText(),
+            gradient_offset_horizontal_px=self.qr_style_panel.gradient_offset_horizontal_spin.value(),
+            gradient_offset_vertical_px=self.qr_style_panel.gradient_offset_vertical_spin.value(),
+            gradient_offset_diagonal_down_px=self.qr_style_panel.gradient_offset_diagonal_down_spin.value(),
+            gradient_offset_diagonal_up_px=self.qr_style_panel.gradient_offset_diagonal_up_spin.value(),
             qr_background_enabled=self.qr_card_panel.qr_background_enabled_check.isChecked(),
             qr_background_color=self.qr_card_panel.qr_background_color_button.color(),
             qr_background_padding=self.qr_card_panel.qr_background_padding_spin.value(),
@@ -2232,6 +2283,10 @@ class PresetEditor(QWidget):
         self.qr_style_panel.gradient_enabled_check.setChecked(preset.gradient_enabled)
         self.qr_style_panel.gradient_color_button.set_color(preset.gradient_color)
         self.qr_style_panel.gradient_direction_combo.setCurrentText(preset.gradient_direction)
+        self.qr_style_panel.gradient_offset_horizontal_spin.setValue(preset.gradient_offset_horizontal_px)
+        self.qr_style_panel.gradient_offset_vertical_spin.setValue(preset.gradient_offset_vertical_px)
+        self.qr_style_panel.gradient_offset_diagonal_down_spin.setValue(preset.gradient_offset_diagonal_down_px)
+        self.qr_style_panel.gradient_offset_diagonal_up_spin.setValue(preset.gradient_offset_diagonal_up_px)
         self.qr_style_panel.sync_state()
 
         self.qr_card_panel.qr_background_enabled_check.setChecked(preset.qr_background_enabled)
@@ -2295,6 +2350,10 @@ class PresetEditor(QWidget):
             "gradient_enabled": self.qr_style_panel.gradient_enabled_field,
             "gradient_color": self.qr_style_panel.gradient_color_field,
             "gradient_direction": self.qr_style_panel.gradient_direction_field,
+            "gradient_offset_horizontal_px": self.qr_style_panel.gradient_offset_horizontal_field,
+            "gradient_offset_vertical_px": self.qr_style_panel.gradient_offset_vertical_field,
+            "gradient_offset_diagonal_down_px": self.qr_style_panel.gradient_offset_diagonal_down_field,
+            "gradient_offset_diagonal_up_px": self.qr_style_panel.gradient_offset_diagonal_up_field,
             "qr_background_enabled": self.qr_card_panel.qr_background_enabled_field,
             "qr_background_color": self.qr_card_panel.qr_background_color_field,
             "qr_background_padding": self.qr_card_panel.qr_background_padding_field,
@@ -2989,7 +3048,7 @@ def _spin(minimum: int, maximum: int, suffix: str = "") -> QSpinBox:
 from __future__ import annotations
 
 from PySide6.QtCore import Signal
-from PySide6.QtWidgets import QCheckBox, QComboBox, QFormLayout, QGroupBox, QSpinBox
+from PySide6.QtWidgets import QCheckBox, QComboBox, QFormLayout, QGroupBox, QSpinBox, QWidget
 
 from qr_preset_studio.domain.constants import (
     BODY_SHAPES,
@@ -3006,8 +3065,8 @@ class QrStylePanel(QGroupBox):
 
     def __init__(self) -> None:
         super().__init__("Стиль QR")
-        form = QFormLayout(self)
-        form.setSpacing(10)
+        self._form = QFormLayout(self)
+        self._form.setSpacing(10)
 
         self.body_shape_combo = _combo(BODY_SHAPES)
         self.rounded_body_radius_spin = _spin(0, 200, " px")
@@ -3018,6 +3077,10 @@ class QrStylePanel(QGroupBox):
         self.gradient_enabled_check = QCheckBox("Включить градиент")
         self.gradient_color_button = ColorButton("#2563EB", "Второй цвет градиента")
         self.gradient_direction_combo = _combo(GRADIENT_DIRECTIONS)
+        self.gradient_offset_horizontal_spin = _spin(-5000, 5000, " px")
+        self.gradient_offset_vertical_spin = _spin(-5000, 5000, " px")
+        self.gradient_offset_diagonal_down_spin = _spin(-5000, 5000, " px")
+        self.gradient_offset_diagonal_up_spin = _spin(-5000, 5000, " px")
 
         self.rounded_body_radius_spin.setValue(8)
         self.spikes_single_corner_radius_spin.setValue(8)
@@ -3031,16 +3094,24 @@ class QrStylePanel(QGroupBox):
         self.gradient_enabled_field = LockableField(self.gradient_enabled_check)
         self.gradient_color_field = LockableField(self.gradient_color_button)
         self.gradient_direction_field = LockableField(self.gradient_direction_combo)
+        self.gradient_offset_horizontal_field = LockableField(self.gradient_offset_horizontal_spin)
+        self.gradient_offset_vertical_field = LockableField(self.gradient_offset_vertical_spin)
+        self.gradient_offset_diagonal_down_field = LockableField(self.gradient_offset_diagonal_down_spin)
+        self.gradient_offset_diagonal_up_field = LockableField(self.gradient_offset_diagonal_up_spin)
 
-        form.addRow("Body shape", self.body_shape_field)
-        form.addRow("Радиус скругления body", self.rounded_body_radius_field)
-        form.addRow("Радиус свободного угла spikes", self.spikes_single_corner_radius_field)
-        form.addRow("Eye frame", self.eye_frame_field)
-        form.addRow("Eye ball", self.eye_ball_field)
-        form.addRow("Цвет QR", self.qr_color_field)
-        form.addRow("Градиент", self.gradient_enabled_field)
-        form.addRow("Второй цвет", self.gradient_color_field)
-        form.addRow("Направление", self.gradient_direction_field)
+        self._form.addRow("Body shape", self.body_shape_field)
+        self._form.addRow("Радиус скругления body", self.rounded_body_radius_field)
+        self._form.addRow("Радиус свободного угла spikes", self.spikes_single_corner_radius_field)
+        self._form.addRow("Eye frame", self.eye_frame_field)
+        self._form.addRow("Eye ball", self.eye_ball_field)
+        self._form.addRow("Цвет QR", self.qr_color_field)
+        self._form.addRow("Градиент", self.gradient_enabled_field)
+        self._form.addRow("Второй цвет", self.gradient_color_field)
+        self._form.addRow("Направление", self.gradient_direction_field)
+        self._form.addRow("Смещение horizontal", self.gradient_offset_horizontal_field)
+        self._form.addRow("Смещение vertical", self.gradient_offset_vertical_field)
+        self._form.addRow("Смещение diagonal_down", self.gradient_offset_diagonal_down_field)
+        self._form.addRow("Смещение diagonal_up", self.gradient_offset_diagonal_up_field)
 
         self.body_shape_combo.currentTextChanged.connect(self._sync_state)
         self.body_shape_combo.currentTextChanged.connect(self.changed)
@@ -3048,19 +3119,57 @@ class QrStylePanel(QGroupBox):
         self.spikes_single_corner_radius_spin.valueChanged.connect(self.changed)
         self.eye_frame_combo.currentTextChanged.connect(self.changed)
         self.eye_ball_combo.currentTextChanged.connect(self.changed)
+        self.gradient_enabled_check.toggled.connect(self._sync_state)
         self.gradient_enabled_check.toggled.connect(self.changed)
+        self.gradient_direction_combo.currentTextChanged.connect(self._sync_state)
         self.gradient_direction_combo.currentTextChanged.connect(self.changed)
+        self.gradient_offset_horizontal_spin.valueChanged.connect(self.changed)
+        self.gradient_offset_vertical_spin.valueChanged.connect(self.changed)
+        self.gradient_offset_diagonal_down_spin.valueChanged.connect(self.changed)
+        self.gradient_offset_diagonal_up_spin.valueChanged.connect(self.changed)
         self.qr_color_button.clicked.connect(self.changed)
         self.gradient_color_button.clicked.connect(self.changed)
 
         self.sync_state()
 
     def sync_state(self) -> None:
-        self._sync_state(self.body_shape_combo.currentText())
+        self._sync_state()
 
-    def _sync_state(self, shape: str) -> None:
+    def _sync_state(self) -> None:
+        shape = self.body_shape_combo.currentText()
+        gradient_enabled = self.gradient_enabled_check.isChecked()
+        gradient_direction = self.gradient_direction_combo.currentText()
+
         self.rounded_body_radius_field.set_content_enabled(shape == "rounded")
         self.spikes_single_corner_radius_field.set_content_enabled(shape == "spikes")
+
+        self.gradient_color_field.set_content_enabled(gradient_enabled)
+        self.gradient_direction_field.set_content_enabled(gradient_enabled)
+
+        self._set_offset_row_visible(
+            self.gradient_offset_horizontal_field,
+            gradient_enabled and gradient_direction == "horizontal",
+        )
+        self._set_offset_row_visible(
+            self.gradient_offset_vertical_field,
+            gradient_enabled and gradient_direction == "vertical",
+        )
+        self._set_offset_row_visible(
+            self.gradient_offset_diagonal_down_field,
+            gradient_enabled and gradient_direction == "diagonal_down",
+        )
+        self._set_offset_row_visible(
+            self.gradient_offset_diagonal_up_field,
+            gradient_enabled and gradient_direction == "diagonal_up",
+        )
+
+    def _set_offset_row_visible(self, field: LockableField, visible: bool) -> None:
+        field.set_content_enabled(visible)
+        field.setVisible(visible)
+
+        label = self._form.labelForField(field)
+        if label is not None:
+            label.setVisible(visible)
 
 
 def _combo(values: list[str]) -> QComboBox:

@@ -6,6 +6,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLineEdit,
     QPushButton,
+    QSpinBox,
     QVBoxLayout,
     QWidget,
 )
@@ -34,6 +35,11 @@ class BackgroundPanel(QWidget):
         self.browse_button = QPushButton("Выбрать")
         self.clear_button = QPushButton("Сбросить")
 
+        self.background_scale_spin = _spin(1, 1000, " %")
+        self.background_offset_x_spin = _spin(-5000, 5000, " px")
+        self.background_offset_y_spin = _spin(-5000, 5000, " px")
+        self.background_scale_spin.setValue(100)
+
         buttons = QHBoxLayout()
         buttons.setContentsMargins(0, 0, 0, 0)
         buttons.setSpacing(8)
@@ -48,11 +54,17 @@ class BackgroundPanel(QWidget):
         bg_layout.addLayout(buttons)
 
         self.background_field = LockableField(background_widget)
+        self.background_scale_field = LockableField(self.background_scale_spin)
+        self.background_offset_x_field = LockableField(self.background_offset_x_spin)
+        self.background_offset_y_field = LockableField(self.background_offset_y_spin)
 
         content = QWidget()
         form = QFormLayout(content)
         form.setSpacing(10)
         form.addRow("Изображение", self.background_field)
+        form.addRow("Масштаб", self.background_scale_field)
+        form.addRow("Сдвиг X", self.background_offset_x_field)
+        form.addRow("Сдвиг Y", self.background_offset_y_field)
 
         content_layout = QVBoxLayout()
         content_layout.setContentsMargins(0, 0, 0, 0)
@@ -63,6 +75,18 @@ class BackgroundPanel(QWidget):
         self.browse_button.clicked.connect(self.browse_requested)
         self.clear_button.clicked.connect(self.clear_requested)
         self.background_path_input.textChanged.connect(self.changed)
+        self.background_scale_spin.valueChanged.connect(self.changed)
+        self.background_offset_x_spin.valueChanged.connect(self.changed)
+        self.background_offset_y_spin.valueChanged.connect(self.changed)
 
     def set_background_path(self, path: str) -> None:
         self.background_path_input.setText(path)
+
+
+def _spin(minimum: int, maximum: int, suffix: str = "") -> QSpinBox:
+    spin = QSpinBox()
+    spin.setRange(minimum, maximum)
+    spin.setSingleStep(1)
+    if suffix:
+        spin.setSuffix(suffix)
+    return spin
