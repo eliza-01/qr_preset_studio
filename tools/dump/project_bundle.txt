@@ -199,6 +199,9 @@ class Preset:
     canvas_height: int = 1200
     canvas_background_color: str = "#F3F4F6"
     background_image_path: str = ""
+    background_scale_percent: int = 100
+    background_offset_x: int = 0
+    background_offset_y: int = 0
 
     qr_scale_percent: int = 42
     qr_offset_x: int = 0
@@ -271,6 +274,10 @@ class Preset:
 
         preset.canvas_width = _clamp_int(preset.canvas_width, 256, 8000, 1200)
         preset.canvas_height = _clamp_int(preset.canvas_height, 256, 8000, 1200)
+        preset.background_scale_percent = _clamp_int(preset.background_scale_percent, 1, 1000, 100)
+        preset.background_offset_x = _clamp_int(preset.background_offset_x, -5000, 5000, 0)
+        preset.background_offset_y = _clamp_int(preset.background_offset_y, -5000, 5000, 0)
+
         preset.qr_scale_percent = _clamp_int(preset.qr_scale_percent, 10, 90, 42)
         preset.qr_offset_x = _clamp_int(preset.qr_offset_x, -5000, 5000, 0)
         preset.qr_offset_y = _clamp_int(preset.qr_offset_y, -5000, 5000, 0)
@@ -325,6 +332,9 @@ class Preset:
             canvas_height=max(1, int(round(self.canvas_height * factor))),
             canvas_background_color=self.canvas_background_color,
             background_image_path=self.background_image_path,
+            background_scale_percent=self.background_scale_percent,
+            background_offset_x=int(round(self.background_offset_x * factor)),
+            background_offset_y=int(round(self.background_offset_y * factor)),
             qr_scale_percent=self.qr_scale_percent,
             qr_offset_x=int(round(self.qr_offset_x * factor)),
             qr_offset_y=int(round(self.qr_offset_y * factor)),
@@ -1488,18 +1498,40 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PIL import Image, ImageOps
+from PIL import Image
 
 from qr_preset_studio.domain.models.preset import Preset
 
 
 def build_canvas(preset: Preset) -> Image.Image:
     size = (preset.canvas_width, preset.canvas_height)
+    canvas = Image.new("RGBA", size, preset.canvas_background_color)
+
     image_path = Path(preset.background_image_path).expanduser()
-    if image_path.is_file():
-        image = Image.open(image_path).convert("RGBA")
-        return ImageOps.fit(image, size, method=Image.Resampling.LANCZOS)
-    return Image.new("RGBA", size, preset.canvas_background_color)
+    if not image_path.is_file():
+        return canvas
+
+    with Image.open(image_path) as source:
+        image = source.convert("RGBA")
+
+    cover_scale = max(
+        size[0] / max(1, image.width),
+        size[1] / max(1, image.height),
+    )
+    user_scale = max(1, preset.background_scale_percent) / 100
+    final_scale = cover_scale * user_scale
+
+    scaled_size = (
+        max(1, int(round(image.width * final_scale))),
+        max(1, int(round(image.height * final_scale))),
+    )
+    image = image.resize(scaled_size, Image.Resampling.LANCZOS)
+
+    pos_x = ((size[0] - image.width) // 2) + preset.background_offset_x
+    pos_y = ((size[1] - image.height) // 2) + preset.background_offset_y
+
+    canvas.paste(image, (pos_x, pos_y), image)
+    return canvas
 
 # qr_preset_studio/infrastructure/rendering/color_map.py
 from __future__ import annotations
@@ -2198,6 +2230,9 @@ class PresetEditor(QWidget):
             canvas_height=self.canvas_panel.canvas_height_spin.value(),
             canvas_background_color=self.canvas_panel.canvas_bg_color_button.color(),
             background_image_path=self.background_panel.background_path_input.text().strip(),
+            background_scale_percent=self.background_panel.background_scale_spin.value(),
+            background_offset_x=self.background_panel.background_offset_x_spin.value(),
+            background_offset_y=self.background_panel.background_offset_y_spin.value(),
             qr_scale_percent=self.content_panel.qr_scale_spin.value(),
             qr_offset_x=self.content_panel.qr_offset_x_spin.value(),
             qr_offset_y=self.content_panel.qr_offset_y_spin.value(),
@@ -2248,6 +2283,9 @@ class PresetEditor(QWidget):
         self.canvas_panel.canvas_height_spin.setValue(preset.canvas_height)
         self.canvas_panel.canvas_bg_color_button.set_color(preset.canvas_background_color)
         self.background_panel.set_background_path(preset.background_image_path)
+        self.background_panel.background_scale_spin.setValue(preset.background_scale_percent)
+        self.background_panel.background_offset_x_spin.setValue(preset.background_offset_x)
+        self.background_panel.background_offset_y_spin.setValue(preset.background_offset_y)
 
         self.content_panel.qr_scale_spin.setValue(preset.qr_scale_percent)
         self.content_panel.qr_offset_x_spin.setValue(preset.qr_offset_x)
@@ -2327,6 +2365,9 @@ class PresetEditor(QWidget):
             "canvas_height": self.canvas_panel.canvas_height_field,
             "canvas_background_color": self.canvas_panel.canvas_bg_color_field,
             "background_image_path": self.background_panel.background_field,
+            "background_scale_percent": self.background_panel.background_scale_field,
+            "background_offset_x": self.background_panel.background_offset_x_field,
+            "background_offset_y": self.background_panel.background_offset_y_field,
             "body_shape": self.qr_style_panel.body_shape_field,
             "rounded_body_radius_px": self.qr_style_panel.rounded_body_radius_field,
             "spikes_single_corner_radius_px": self.qr_style_panel.spikes_single_corner_radius_field,
@@ -2419,6 +2460,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLineEdit,
     QPushButton,
+    QSpinBox,
     QVBoxLayout,
     QWidget,
 )
@@ -2447,6 +2489,11 @@ class BackgroundPanel(QWidget):
         self.browse_button = QPushButton("Выбрать")
         self.clear_button = QPushButton("Сбросить")
 
+        self.background_scale_spin = _spin(1, 1000, " %")
+        self.background_offset_x_spin = _spin(-5000, 5000, " px")
+        self.background_offset_y_spin = _spin(-5000, 5000, " px")
+        self.background_scale_spin.setValue(100)
+
         buttons = QHBoxLayout()
         buttons.setContentsMargins(0, 0, 0, 0)
         buttons.setSpacing(8)
@@ -2461,11 +2508,17 @@ class BackgroundPanel(QWidget):
         bg_layout.addLayout(buttons)
 
         self.background_field = LockableField(background_widget)
+        self.background_scale_field = LockableField(self.background_scale_spin)
+        self.background_offset_x_field = LockableField(self.background_offset_x_spin)
+        self.background_offset_y_field = LockableField(self.background_offset_y_spin)
 
         content = QWidget()
         form = QFormLayout(content)
         form.setSpacing(10)
         form.addRow("Изображение", self.background_field)
+        form.addRow("Масштаб", self.background_scale_field)
+        form.addRow("Сдвиг X", self.background_offset_x_field)
+        form.addRow("Сдвиг Y", self.background_offset_y_field)
 
         content_layout = QVBoxLayout()
         content_layout.setContentsMargins(0, 0, 0, 0)
@@ -2476,9 +2529,21 @@ class BackgroundPanel(QWidget):
         self.browse_button.clicked.connect(self.browse_requested)
         self.clear_button.clicked.connect(self.clear_requested)
         self.background_path_input.textChanged.connect(self.changed)
+        self.background_scale_spin.valueChanged.connect(self.changed)
+        self.background_offset_x_spin.valueChanged.connect(self.changed)
+        self.background_offset_y_spin.valueChanged.connect(self.changed)
 
     def set_background_path(self, path: str) -> None:
         self.background_path_input.setText(path)
+
+
+def _spin(minimum: int, maximum: int, suffix: str = "") -> QSpinBox:
+    spin = QSpinBox()
+    spin.setRange(minimum, maximum)
+    spin.setSingleStep(1)
+    if suffix:
+        spin.setSuffix(suffix)
+    return spin
 
 # qr_preset_studio/ui/panels/canvas_panel.py
 from __future__ import annotations

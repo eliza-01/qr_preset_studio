@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import base64
+import io
 from pathlib import Path
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
+    QDialog,
     QFileDialog,
     QHBoxLayout,
     QMainWindow,
@@ -16,9 +19,12 @@ from PySide6.QtWidgets import (
 from qr_preset_studio.application.services.app_state_service import AppStateService
 from qr_preset_studio.application.services.preset_service import PresetService
 from qr_preset_studio.application.services.render_service import RenderService
+from qr_preset_studio.application.services.template_service import TemplateService
 from qr_preset_studio.domain.models.preset import Preset
 from qr_preset_studio.ui.forms.preset_editor import PresetEditor
 from qr_preset_studio.ui.panels.preview_panel import PreviewPanel
+from qr_preset_studio.ui.windows.save_template_dialog import SaveTemplateDialog
+from qr_preset_studio.ui.windows.template_manager_window import TemplateManagerWindow
 
 
 class MainWindow(QMainWindow):
@@ -27,12 +33,16 @@ class MainWindow(QMainWindow):
         preset_service: PresetService,
         render_service: RenderService,
         app_state_service: AppStateService,
+        template_service: TemplateService,
     ) -> None:
         super().__init__()
         self._preset_service = preset_service
         self._render_service = render_service
         self._app_state_service = app_state_service
+        self._template_service = template_service
+
         self._preset = Preset()
+        self._template_manager: TemplateManagerWindow | None = None
 
         self.setWindowTitle("QR Preset Studio")
         self.resize(1480, 920)
@@ -68,10 +78,75 @@ class MainWindow(QMainWindow):
         self.editor.changed.connect(self._refresh_preview)
         self.editor.background_panel.browse_requested.connect(self._choose_background)
         self.editor.background_panel.clear_requested.connect(self._clear_background)
+
         self.editor.actions_panel.save_requested.connect(self._save_preset)
         self.editor.actions_panel.load_requested.connect(self._load_preset)
         self.editor.actions_panel.export_requested.connect(self._export_png)
+
+        self.editor.actions_panel.save_template_requested.connect(self._save_template_to_db)
+        self.editor.actions_panel.template_manager_requested.connect(self._open_template_manager)
+
         self.preview_panel.zoom_changed.connect(self._refresh_preview)
+
+    def _open_template_manager(self) -> None:
+        if self._template_manager is None:
+            self._template_manager = TemplateManagerWindow(self._template_service)
+
+        self._template_manager.reload()
+        self._template_manager.show()
+        self._template_manager.raise_()
+        self._template_manager.activateWindow()
+
+    def _save_template_to_db(self) -> None:
+        preset = self.editor.to_preset()
+        payload = preset.to_dict()
+
+        # preview as data URI PNG (temporary until asset server is wired)
+        try:
+            preview_image = self._render_service.render_preview(preset, 100)
+            preview_uri = _png_data_uri(preview_image)
+        except Exception as exc:
+            QMessageBox.critical(self, "Ошибка превью", str(exc))
+            return
+
+        # load current templates list to choose existing/create new
+        try:
+            templates = self._template_service.list_all()
+        except Exception as exc:
+            QMessageBox.critical(self, "Ошибка БД", str(exc))
+            return
+
+        dlg = SaveTemplateDialog(templates, parent=self)
+        if dlg.exec() != int(QDialog.DialogCode.Accepted):
+            return
+
+        try:
+            if dlg.is_new():
+                created = self._template_service.create_new(
+                    slug=dlg.slug(),
+                    side=dlg.side(),
+                    payload=payload,
+                    preview=preview_uri,
+                    assets={},
+                )
+                self.statusBar().showMessage(f"Шаблон создан: id={created.id}, slug={created.slug}", 5000)
+            else:
+                self._template_service.update_existing_side(
+                    template_id=dlg.template_id(),
+                    side=dlg.side(),
+                    payload=payload,
+                    preview=preview_uri,
+                )
+                self.statusBar().showMessage(
+                    f"Шаблон обновлён: id={dlg.template_id()} ({dlg.side()})",
+                    5000,
+                )
+        except Exception as exc:
+            QMessageBox.critical(self, "Ошибка сохранения шаблона", str(exc))
+            return
+
+        if self._template_manager is not None:
+            self._template_manager.reload()
 
     def _restore_initial_preset(self) -> None:
         last_path = self._app_state_service.last_preset_path()
@@ -199,3 +274,10 @@ class MainWindow(QMainWindow):
     def _clear_background(self) -> None:
         self.editor.background_panel.set_background_path("")
         self._refresh_preview()
+
+
+def _png_data_uri(pil_image) -> str:
+    buf = io.BytesIO()
+    pil_image.save(buf, format="PNG")
+    b64 = base64.b64encode(buf.getvalue()).decode("ascii")
+    return f"data:image/png;base64,{b64}"

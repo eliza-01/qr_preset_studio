@@ -8,6 +8,8 @@ from pathlib import Path
 class AppPaths:
     root_dir: Path
     presets_dir: Path
+    templates_dir: Path
+    templates_cache_dir: Path
     database_dir: Path
     database_file: Path
     app_state_file: Path
@@ -15,17 +17,26 @@ class AppPaths:
     @classmethod
     def default(cls) -> "AppPaths":
         root_dir = Path.home() / "QRPresetStudio"
+
         presets_dir = root_dir / "presets"
+
+        templates_dir = root_dir / "templates"
+        templates_cache_dir = root_dir / "template_cache"
+
         database_dir = root_dir / "database"
         database_file = database_dir / "qr_preset_studio.sqlite3"
         app_state_file = root_dir / "app_state.json"
 
         presets_dir.mkdir(parents=True, exist_ok=True)
+        templates_dir.mkdir(parents=True, exist_ok=True)
+        templates_cache_dir.mkdir(parents=True, exist_ok=True)
         database_dir.mkdir(parents=True, exist_ok=True)
 
         return cls(
             root_dir=root_dir,
             presets_dir=presets_dir,
+            templates_dir=templates_dir,
+            templates_cache_dir=templates_cache_dir,
             database_dir=database_dir,
             database_file=database_file,
             app_state_file=app_state_file,
