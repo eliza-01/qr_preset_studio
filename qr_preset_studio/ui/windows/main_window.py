@@ -2,17 +2,20 @@ from __future__ import annotations
 
 import base64
 import io
+import sys
 from pathlib import Path
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QProcess, Qt
 from PySide6.QtWidgets import (
     QDialog,
     QFileDialog,
     QHBoxLayout,
     QMainWindow,
     QMessageBox,
+    QPushButton,
     QScrollArea,
     QSplitter,
+    QVBoxLayout,
     QWidget,
 )
 
@@ -55,12 +58,13 @@ class MainWindow(QMainWindow):
 
     def _build_ui(self) -> None:
         root = QWidget()
-        layout = QHBoxLayout(root)
+        layout = QVBoxLayout(root)
         layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(10)
 
         splitter = QSplitter(Qt.Horizontal)
         splitter.setChildrenCollapsible(False)
-        layout.addWidget(splitter)
+        layout.addWidget(splitter, 1)
 
         controls_scroll = QScrollArea()
         controls_scroll.setWidgetResizable(True)
@@ -71,6 +75,15 @@ class MainWindow(QMainWindow):
         self.preview_panel = PreviewPanel()
         splitter.addWidget(self.preview_panel)
         splitter.setSizes([480, 980])
+
+        footer = QHBoxLayout()
+        footer.addStretch(1)
+
+        self.restart_button = QPushButton("Перезапустить приложение")
+        self.restart_button.setFixedHeight(36)
+        footer.addWidget(self.restart_button)
+
+        layout.addLayout(footer)
 
         self.setCentralWidget(root)
 
@@ -87,6 +100,7 @@ class MainWindow(QMainWindow):
         self.editor.actions_panel.template_manager_requested.connect(self._open_template_manager)
 
         self.preview_panel.zoom_changed.connect(self._refresh_preview)
+        self.restart_button.clicked.connect(self._restart_application)
 
     def _open_template_manager(self) -> None:
         if self._template_manager is None:
@@ -274,6 +288,18 @@ class MainWindow(QMainWindow):
     def _clear_background(self) -> None:
         self.editor.background_panel.set_background_path("")
         self._refresh_preview()
+
+    def _restart_application(self) -> None:
+        program = sys.executable
+        arguments = sys.argv[:]
+        working_directory = str(Path.cwd())
+
+        restarted = QProcess.startDetached(program, arguments, working_directory)
+        if not restarted:
+            QMessageBox.critical(self, "Ошибка перезапуска", "Не удалось запустить новый экземпляр приложения.")
+            return
+
+        self.close()
 
 
 def _png_data_uri(pil_image) -> str:
