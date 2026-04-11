@@ -8,11 +8,13 @@ from PySide6.QtCore import Qt, QSize, QUrl
 from PySide6.QtGui import QAction, QIcon, QPixmap
 from PySide6.QtNetwork import QNetworkAccessManager, QNetworkReply, QNetworkRequest
 from PySide6.QtWidgets import (
+    QBoxLayout,
     QDialog,
     QHBoxLayout,
     QLabel,
     QMainWindow,
     QMessageBox,
+    QPushButton,
     QTableWidget,
     QTableWidgetItem,
     QToolBar,
@@ -79,26 +81,42 @@ class TemplatePreviewDialog(QDialog):
         root.setContentsMargins(12, 12, 12, 12)
         root.setSpacing(10)
 
+        top_bar = QHBoxLayout()
         header = QLabel(title)
         header.setStyleSheet("font-weight: 700; font-size: 16px;")
-        root.addWidget(header)
+        top_bar.addWidget(header, 1)
+
+        self._mode_btn = QPushButton("Вид: Горизонтальный")
+        self._mode_btn.setFixedWidth(180)
+        self._mode_btn.clicked.connect(self._toggle_view_mode)
+        top_bar.addWidget(self._mode_btn)
+
+        root.addLayout(top_bar)
 
         content = QWidget()
-        content_layout = QHBoxLayout(content)
-        content_layout.setContentsMargins(0, 0, 0, 0)
-        content_layout.setSpacing(12)
+        self._content_layout = QBoxLayout(QBoxLayout.LeftToRight, content)
+        self._content_layout.setContentsMargins(0, 0, 0, 0)
+        self._content_layout.setSpacing(12)
 
         self.front_label = self._image_panel("Front")
         self.back_label = self._image_panel("Back")
 
-        content_layout.addWidget(self._wrap_scroll(self.front_label), 1)
-        content_layout.addWidget(self._wrap_scroll(self.back_label), 1)
+        self._content_layout.addWidget(self._wrap_scroll(self.front_label), 1)
+        self._content_layout.addWidget(self._wrap_scroll(self.back_label), 1)
 
         root.addWidget(content, 1)
 
         hint = QLabel("Клик по строке в менеджере открывает увеличенный просмотр.")
         hint.setStyleSheet("color: #475569;")
         root.addWidget(hint)
+
+    def _toggle_view_mode(self) -> None:
+        if self._content_layout.direction() == QBoxLayout.LeftToRight:
+            self._content_layout.setDirection(QBoxLayout.TopToBottom)
+            self._mode_btn.setText("Вид: Вертикальный")
+        else:
+            self._content_layout.setDirection(QBoxLayout.LeftToRight)
+            self._mode_btn.setText("Вид: Горизонтальный")
 
     def set_images(self, front_source: str, back_source: str) -> None:
         self._set_image(self.front_label, front_source)
