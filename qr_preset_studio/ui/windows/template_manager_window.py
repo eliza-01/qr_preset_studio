@@ -5,7 +5,7 @@ import hashlib
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QSize, QUrl
-from PySide6.QtGui import QAction, QIcon, QPixmap
+from PySide6.QtGui import QAction, QIcon, QPixmap, QResizeEvent, QWheelEvent
 from PySide6.QtNetwork import QNetworkAccessManager, QNetworkReply, QNetworkRequest
 from PySide6.QtWidgets import (
     QBoxLayout,
@@ -30,6 +30,9 @@ from qr_preset_studio.domain.models.template import CardTemplate
 
 _THUMB_SIZE = QSize(220, 140)
 _VIEW_SIZE = QSize(900, 600)
+_ZOOM_MIN = 0.25
+_ZOOM_MAX = 5.0
+_ZOOM_STEP = 1.15
 
 
 def _is_url(value: str) -> bool:
@@ -75,7 +78,7 @@ class TemplatePreviewDialog(QDialog):
         self._cache_dir.mkdir(parents=True, exist_ok=True)
 
         self._net = QNetworkAccessManager(self)
-        self._pending: dict[QNetworkReply, tuple[QLabel, Path]] = {}
+        self._pending: dict[QNetworkReply, tuple[ZoomablePreviewArea, Path]] = {}
 
         root = QVBoxLayout(self)
         root.setContentsMargins(12, 12, 12, 12)
@@ -101,8 +104,8 @@ class TemplatePreviewDialog(QDialog):
         self.front_label = self._image_panel("Front")
         self.back_label = self._image_panel("Back")
 
-        self._content_layout.addWidget(self._wrap_scroll(self.front_label), 1)
-        self._content_layout.addWidget(self._wrap_scroll(self.back_label), 1)
+        self._content_layout.addWidget(self.front_label, 1)
+        self._content_layout.addWidget(self.back_label, 1)
 
         root.addWidget(content, 1)
 
@@ -122,36 +125,21 @@ class TemplatePreviewDialog(QDialog):
         self._set_image(self.front_label, front_source)
         self._set_image(self.back_label, back_source)
 
-    def _wrap_scroll(self, label: QLabel) -> QScrollArea:
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setAlignment(Qt.AlignCenter)
-        scroll.setWidget(label)
-        return scroll
+    def _image_panel(self, title: str) -> "ZoomablePreviewArea":
+        panel = ZoomablePreviewArea(title)
+        panel.setMinimumSize(420, 320)
+        return panel
 
-    def _image_panel(self, title: str) -> QLabel:
-        label = QLabel()
-        label.setAlignment(Qt.AlignCenter)
-        label.setWordWrap(True)
-        label.setMinimumSize(420, 320)
-        label.setStyleSheet(
-            "QLabel { background: #E2E8F0; border: 1px solid #CBD5E1; border-radius: 12px; padding: 10px; }"
-        )
-        label.setText(f"{title}\n(нет превью)")
-        return label
-
-    def _apply_pixmap(self, target: QLabel, pixmap: QPixmap) -> None:
+    def _apply_pixmap(self, target: "ZoomablePreviewArea", pixmap: QPixmap) -> None:
         if pixmap.isNull():
-            target.setText("Превью не удалось загрузить")
+            target.set_message("Превью не удалось загрузить")
             return
-        scaled = pixmap.scaled(_VIEW_SIZE, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-        target.setPixmap(scaled)
-        target.adjustSize()
+        target.set_pixmap(pixmap)
 
-    def _set_image(self, target: QLabel, source: str) -> None:
+    def _set_image(self, target: "ZoomablePreviewArea", source: str) -> None:
         src = (source or "").strip()
         if not src:
-            target.setText("(нет превью)")
+            target.set_message("(нет превью)")
             return
 
         data_pix = _pixmap_from_data_uri(src)
@@ -166,7 +154,7 @@ class TemplatePreviewDialog(QDialog):
                 self._apply_pixmap(target, QPixmap(str(cache_path)))
                 return
 
-            target.setText("Загрузка превью...")
+            target.set_message("Загрузка превью...")
             req = QNetworkRequest(url)
             reply = self._net.get(req)
             self._pending[reply] = (target, cache_path)
@@ -178,7 +166,7 @@ class TemplatePreviewDialog(QDialog):
             self._apply_pixmap(target, QPixmap(str(path)))
             return
 
-        target.setText("Превью не найдено")
+        target.set_message("Превью не найдено")
 
     def _cache_path_for_url(self, url: QUrl) -> Path:
         digest = hashlib.sha256(url.toString().encode("utf-8")).hexdigest()
@@ -194,7 +182,7 @@ class TemplatePreviewDialog(QDialog):
 
         try:
             if reply.error() != QNetworkReply.NetworkError.NoError:
-                target.setText(f"Ошибка загрузки: {reply.errorString()}")
+                target.set_message(f"Ошибка загрузки: {reply.errorString()}")
                 return
 
             data = bytes(reply.readAll())
@@ -206,6 +194,102 @@ class TemplatePreviewDialog(QDialog):
             self._apply_pixmap(target, pixmap)
         finally:
             reply.deleteLater()
+
+
+class ZoomablePreviewArea(QScrollArea):
+    def __init__(self, title: str, parent=None) -> None:
+        super().__init__(parent)
+        self._title = title
+        self._base_pixmap: QPixmap | None = None
+        self._zoom = 1.0
+
+        self.setAlignment(Qt.AlignCenter)
+        self.setStyleSheet(
+            "QScrollArea { background: #E2E8F0; border: 1px solid #CBD5E1; border-radius: 12px; }"
+        )
+
+        self._label = QLabel()
+        self._label.setAlignment(Qt.AlignCenter)
+        self._label.setWordWrap(True)
+        self._label.setStyleSheet("background: transparent; border: 0; padding: 10px;")
+        self.setWidget(self._label)
+        self.set_message("(нет превью)")
+
+    def set_message(self, text: str) -> None:
+        self._base_pixmap = None
+        self._zoom = 1.0
+        self._label.clear()
+        self._label.setText(f"{self._title}\n{text}")
+        self._label.adjustSize()
+        self._center_on_content()
+
+    def set_pixmap(self, pixmap: QPixmap) -> None:
+        self._base_pixmap = pixmap
+        self._zoom = 1.0
+        self._update_scaled_pixmap()
+
+    def resizeEvent(self, event: QResizeEvent) -> None:
+        super().resizeEvent(event)
+        if self._base_pixmap is not None:
+            self._update_scaled_pixmap()
+
+    def wheelEvent(self, event: QWheelEvent) -> None:
+        if (
+            self._base_pixmap is not None
+            and event.modifiers() & Qt.ControlModifier
+            and event.angleDelta().y() != 0
+        ):
+            steps = event.angleDelta().y() / 120
+            factor = _ZOOM_STEP ** steps
+            self._set_zoom(self._zoom * factor)
+            event.accept()
+            return
+        super().wheelEvent(event)
+
+    def _set_zoom(self, zoom: float) -> None:
+        if self._base_pixmap is None:
+            return
+        bounded_zoom = max(_ZOOM_MIN, min(_ZOOM_MAX, zoom))
+        if abs(bounded_zoom - self._zoom) < 1e-6:
+            return
+        self._zoom = bounded_zoom
+        self._update_scaled_pixmap()
+
+    def _update_scaled_pixmap(self) -> None:
+        if self._base_pixmap is None:
+            return
+
+        fit_scale = self._fit_scale()
+        scale = fit_scale * self._zoom
+        width = max(1, int(round(self._base_pixmap.width() * scale)))
+        height = max(1, int(round(self._base_pixmap.height() * scale)))
+        scaled = self._base_pixmap.scaled(
+            width,
+            height,
+            Qt.IgnoreAspectRatio,
+            Qt.SmoothTransformation,
+        )
+        self._label.clear()
+        self._label.setPixmap(scaled)
+        self._label.adjustSize()
+        self._center_on_content()
+
+    def _fit_scale(self) -> float:
+        if self._base_pixmap is None:
+            return 1.0
+
+        viewport_size = self.viewport().size()
+        available_width = max(1, viewport_size.width() - 20)
+        available_height = max(1, viewport_size.height() - 20)
+        width_scale = available_width / max(1, self._base_pixmap.width())
+        height_scale = available_height / max(1, self._base_pixmap.height())
+        return min(width_scale, height_scale, 1.0)
+
+    def _center_on_content(self) -> None:
+        hbar = self.horizontalScrollBar()
+        vbar = self.verticalScrollBar()
+        hbar.setValue(hbar.maximum() // 2)
+        vbar.setValue(vbar.maximum() // 2)
 
 
 class TemplateManagerWindow(QMainWindow):
