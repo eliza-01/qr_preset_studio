@@ -70,15 +70,7 @@ def _claw_connection_tile(
     col: int,
 ) -> Image.Image:
     lean_right = _resolve_lean_right(preset, row, col)
-    tile = _top_claw_tile(preset, width, height, lean_right)
-
-    if exposed_side == "top":
-        return tile
-    if exposed_side == "right":
-        return tile.transpose(Image.Transpose.ROTATE_270)
-    if exposed_side == "bottom":
-        return tile.transpose(Image.Transpose.ROTATE_180)
-    return tile.transpose(Image.Transpose.ROTATE_90)
+    return _oriented_claw_tile(preset, width, height, exposed_side, lean_right)
 
 
 def _resolve_lean_right(preset: Preset, row: int, col: int) -> bool:
@@ -89,18 +81,24 @@ def _resolve_lean_right(preset: Preset, row: int, col: int) -> bool:
     return lean_right if preset.claw_lean_right else not lean_right
 
 
-def _top_claw_tile(preset: Preset, width: int, height: int, lean_right: bool) -> Image.Image:
+def _oriented_claw_tile(
+    preset: Preset,
+    width: int,
+    height: int,
+    exposed_side: str,
+    lean_right: bool,
+) -> Image.Image:
     scale = max(1, preset.claw_detail_scale)
     hi_width = max(12, width * scale)
     hi_height = max(12, height * scale)
-
-    tile = Image.new("L", (hi_width, hi_height), 0)
-    draw = ImageDraw.Draw(tile)
-    draw.polygon(_top_claw_polygon(preset, hi_width, hi_height), fill=255)
-
+    source_polygon = _top_claw_polygon(preset, hi_width, hi_height)
     if not lean_right:
-        tile = tile.transpose(Image.Transpose.FLIP_LEFT_RIGHT)
+        source_polygon = _flip_polygon_horizontally(source_polygon, hi_width)
 
+    polygon, tile_size = _orient_polygon(source_polygon, hi_width, hi_height, exposed_side)
+    tile = Image.new("L", tile_size, 0)
+    draw = ImageDraw.Draw(tile)
+    draw.polygon(_rounded_polygon(polygon), fill=255)
     return tile.resize((width, height), Image.Resampling.LANCZOS)
 
 
@@ -169,6 +167,36 @@ def _filled_rect_tile(width: int, height: int) -> Image.Image:
     tile = Image.new("L", (width, height), 0)
     ImageDraw.Draw(tile).rectangle((0, 0, width - 1, height - 1), fill=255)
     return tile
+
+
+def _rounded_polygon(points: list[tuple[float, float]]) -> list[tuple[int, int]]:
+    return [(int(round(x)), int(round(y))) for x, y in points]
+
+
+def _flip_polygon_horizontally(
+    points: list[tuple[int, int]] | list[tuple[float, float]],
+    width: int,
+) -> list[tuple[float, float]]:
+    max_x = float(max(0, width - 1))
+    return [(max_x - x, y) for x, y in points]
+
+
+def _orient_polygon(
+    points: list[tuple[int, int]] | list[tuple[float, float]],
+    width: int,
+    height: int,
+    exposed_side: str,
+) -> tuple[list[tuple[float, float]], tuple[int, int]]:
+    max_x = float(max(0, width - 1))
+    max_y = float(max(0, height - 1))
+
+    if exposed_side == "top":
+        return list(points), (width, height)
+    if exposed_side == "right":
+        return ([(max_y - y, x) for x, y in points], (height, width))
+    if exposed_side == "bottom":
+        return ([(max_x - x, max_y - y) for x, y in points], (width, height))
+    return ([(y, max_x - x) for x, y in points], (height, width))
 
 
 def _circle_tile(width: int, height: int) -> Image.Image:
