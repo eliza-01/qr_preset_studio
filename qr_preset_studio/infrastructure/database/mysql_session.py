@@ -1,3 +1,4 @@
+﻿# qr_preset_studio/infrastructure/database/mysql_session.py
 from __future__ import annotations
 
 import os

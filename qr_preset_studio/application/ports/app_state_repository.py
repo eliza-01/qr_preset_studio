@@ -1,3 +1,4 @@
+﻿# qr_preset_studio/application/ports/app_state_repository.py
 from __future__ import annotations
 
 from pathlib import Path

@@ -1,3 +1,4 @@
+﻿# qr_preset_studio/ui/widgets/lockable_field.py
 from __future__ import annotations
 
 from PySide6.QtCore import Qt, Signal

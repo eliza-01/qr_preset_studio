@@ -1,3 +1,4 @@
+﻿# qr_preset_studio/application/services/render_service.py
 from __future__ import annotations
 
 from PIL import Image

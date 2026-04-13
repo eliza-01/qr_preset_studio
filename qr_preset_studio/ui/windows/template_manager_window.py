@@ -1,3 +1,4 @@
+﻿# qr_preset_studio/ui/windows/template_manager_window.py
 from __future__ import annotations
 
 import base64

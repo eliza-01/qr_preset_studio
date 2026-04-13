@@ -1,3 +1,4 @@
+﻿# qr_preset_studio/infrastructure/rendering/qr_matrix.py
 from __future__ import annotations
 
 import qrcode

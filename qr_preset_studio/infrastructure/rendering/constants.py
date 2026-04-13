@@ -1,3 +1,4 @@
+﻿# qr_preset_studio/infrastructure/rendering/constants.py
 FINDER_SIZE = 7
 FINDER_BALL_OFFSET = 2
 FINDER_BALL_SIZE = 3

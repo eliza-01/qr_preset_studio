@@ -1,3 +1,4 @@
+﻿# qr_preset_studio/infrastructure/rendering/geometry.py
 from __future__ import annotations
 
 from dataclasses import dataclass

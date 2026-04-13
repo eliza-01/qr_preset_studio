@@ -1,3 +1,4 @@
+﻿# app.py
 from qr_preset_studio.bootstrap import run
 
 

@@ -1,3 +1,4 @@
+﻿# qr_preset_studio/domain/models/app_state.py
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass

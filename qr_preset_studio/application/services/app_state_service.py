@@ -1,3 +1,4 @@
+﻿# qr_preset_studio/application/services/app_state_service.py
 from __future__ import annotations
 
 from pathlib import Path

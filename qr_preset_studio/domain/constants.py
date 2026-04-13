@@ -1,3 +1,4 @@
+﻿# qr_preset_studio/domain/constants.py
 BODY_SHAPES = ["square", "rounded", "liquid", "spikes", "claws"]
 EYE_FRAME_SHAPES = ["square", "rounded", "classy_rounded", "classy"]
 EYE_BALL_SHAPES = ["square", "circle", "rounded", "classy_rounded", "classy"]

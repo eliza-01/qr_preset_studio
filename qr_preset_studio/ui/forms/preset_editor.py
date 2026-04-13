@@ -1,3 +1,4 @@
+﻿# qr_preset_studio/ui/forms/preset_editor.py
 from __future__ import annotations
 
 from PySide6.QtCore import Signal

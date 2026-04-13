@@ -1,3 +1,4 @@
+﻿# qr_preset_studio/ui/panels/preview_panel.py
 from __future__ import annotations
 
 from PIL.ImageQt import ImageQt

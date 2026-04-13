@@ -1,3 +1,4 @@
+﻿# qr_preset_studio/infrastructure/rendering/canvas.py
 from __future__ import annotations
 
 from pathlib import Path

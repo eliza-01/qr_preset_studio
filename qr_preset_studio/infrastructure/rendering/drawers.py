@@ -1,3 +1,4 @@
+﻿# qr_preset_studio/infrastructure/rendering/drawers.py
 from __future__ import annotations
 
 from PIL import ImageDraw

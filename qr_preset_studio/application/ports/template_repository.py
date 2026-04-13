@@ -1,3 +1,4 @@
+﻿# qr_preset_studio/application/ports/template_repository.py
 from __future__ import annotations
 
 from typing import Any, Protocol

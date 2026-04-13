@@ -1,3 +1,4 @@
+﻿# qr_preset_studio/infrastructure/rendering/body_shapes/common.py
 from __future__ import annotations
 
 from collections.abc import Iterator

@@ -1,3 +1,4 @@
+﻿# qr_preset_studio/ui/panels/background_panel.py
 from __future__ import annotations
 
 from PySide6.QtCore import Signal

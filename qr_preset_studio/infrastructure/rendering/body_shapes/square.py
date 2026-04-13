@@ -1,3 +1,4 @@
+﻿# qr_preset_studio/infrastructure/rendering/body_shapes/square.py
 from __future__ import annotations
 
 from PIL import Image

@@ -1,3 +1,4 @@
+﻿# qr_preset_studio/infrastructure/persistence/mysql_template_repository.py
 from __future__ import annotations
 
 import json
