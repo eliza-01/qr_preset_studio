@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (
 from qr_preset_studio.application.services.app_state_service import AppStateService
 from qr_preset_studio.application.services.preset_service import PresetService
 from qr_preset_studio.application.services.render_service import RenderService
+from qr_preset_studio.application.services.swyp_card_assignment_service import SwypCardAssignmentService
 from qr_preset_studio.application.services.template_service import TemplateService
 from qr_preset_studio.domain.models.preset import Preset
 from qr_preset_studio.ui.forms.preset_editor import PresetEditor
@@ -38,12 +39,14 @@ class MainWindow(QMainWindow):
         render_service: RenderService,
         app_state_service: AppStateService,
         template_service: TemplateService,
+        swyp_card_assignment_service: SwypCardAssignmentService,
     ) -> None:
         super().__init__()
         self._preset_service = preset_service
         self._render_service = render_service
         self._app_state_service = app_state_service
         self._template_service = template_service
+        self._swyp_card_assignment_service = swyp_card_assignment_service
 
         self._preset = Preset()
         self._template_manager: TemplateManagerWindow | None = None
@@ -105,7 +108,10 @@ class MainWindow(QMainWindow):
 
     def _open_template_manager(self) -> None:
         if self._template_manager is None:
-            self._template_manager = TemplateManagerWindow(self._template_service)
+            self._template_manager = TemplateManagerWindow(
+                self._template_service,
+                self._swyp_card_assignment_service,
+            )
 
         self._template_manager.reload()
         self._template_manager.show()

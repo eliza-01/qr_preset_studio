@@ -5,17 +5,23 @@ import base64
 import hashlib
 from pathlib import Path
 
-from PySide6.QtCore import Qt, QSize, QUrl
+from PySide6.QtCore import Signal, Qt, QSize, QUrl
 from PySide6.QtGui import QAction, QIcon, QPixmap, QResizeEvent, QWheelEvent
 from PySide6.QtNetwork import QNetworkAccessManager, QNetworkReply, QNetworkRequest
 from PySide6.QtWidgets import (
     QBoxLayout,
+    QCheckBox,
     QDialog,
+    QDialogButtonBox,
+    QFormLayout,
     QHBoxLayout,
     QLabel,
+    QListWidget,
+    QListWidgetItem,
     QMainWindow,
     QMessageBox,
     QPushButton,
+    QSpinBox,
     QTableWidget,
     QTableWidgetItem,
     QToolBar,
@@ -25,7 +31,9 @@ from PySide6.QtWidgets import (
     QScrollArea,
 )
 
+from qr_preset_studio.application.services.swyp_card_assignment_service import SwypCardAssignmentService
 from qr_preset_studio.application.services.template_service import TemplateService
+from qr_preset_studio.domain.models.swyp_card import SwypCard
 from qr_preset_studio.domain.models.template import CardTemplate
 
 
@@ -293,10 +301,286 @@ class ZoomablePreviewArea(QScrollArea):
         vbar.setValue(vbar.maximum() // 2)
 
 
+class SelectableCardListItem(QWidget):
+    checked_changed = Signal()
+
+    def __init__(self, card: SwypCard, parent=None) -> None:
+        super().__init__(parent)
+        self.card = card
+
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(8, 6, 8, 6)
+        layout.setSpacing(10)
+
+        self.checkbox = QCheckBox()
+        self.checkbox.stateChanged.connect(lambda _state: self.checked_changed.emit())
+        layout.addWidget(self.checkbox, 0, Qt.AlignTop)
+
+        order_id = card.order_id or "NULL"
+        text = QLabel(f"id: {card.id} | order_id: {order_id} | slug: {card.slug}")
+        text.setWordWrap(True)
+        layout.addWidget(text, 1)
+
+    def is_checked(self) -> bool:
+        return self.checkbox.isChecked()
+
+    def set_checked(self, checked: bool) -> None:
+        self.checkbox.setChecked(checked)
+
+
+class AssignTemplateDialog(QDialog):
+    def __init__(
+        self,
+        *,
+        template: CardTemplate,
+        template_service: TemplateService,
+        swyp_card_assignment_service: SwypCardAssignmentService,
+        parent=None,
+    ) -> None:
+        super().__init__(parent)
+        self._template = template
+        self._template_service = template_service
+        self._swyp_card_assignment_service = swyp_card_assignment_service
+        self._selection_sync_locked = False
+
+        self.setWindowTitle("Присвоить шаблон")
+        self.resize(880, 720)
+
+        self._net = QNetworkAccessManager(self)
+        self._pending: dict[QNetworkReply, tuple[QLabel, Path]] = {}
+
+        self._build_ui()
+        self._load_previews()
+        self._load_cards()
+
+    def selected_card_ids(self) -> list[str]:
+        ids: list[str] = []
+        for index in range(self.cards_list.count()):
+            item = self.cards_list.item(index)
+            widget = self.cards_list.itemWidget(item)
+            if isinstance(widget, SelectableCardListItem) and widget.is_checked():
+                ids.append(widget.card.id)
+        return ids
+
+    def _build_ui(self) -> None:
+        root = QVBoxLayout(self)
+        root.setContentsMargins(12, 12, 12, 12)
+        root.setSpacing(12)
+
+        preview_row = QHBoxLayout()
+        preview_row.setSpacing(12)
+
+        self.front_preview = self._create_preview_label("Front")
+        self.back_preview = self._create_preview_label("Back")
+        preview_row.addWidget(self.front_preview, 1)
+        preview_row.addWidget(self.back_preview, 1)
+        root.addLayout(preview_row)
+
+        slug_label = QLabel(f"slug: {self._template.slug or '—'} | id: {self._template.id or '—'}")
+        slug_label.setStyleSheet("font-weight: 600;")
+        root.addWidget(slug_label)
+
+        form = QFormLayout()
+        form.setContentsMargins(0, 0, 0, 0)
+        form.setSpacing(8)
+
+        self.count_input = QSpinBox()
+        self.count_input.setMinimum(0)
+        self.count_input.valueChanged.connect(self._apply_count_selection)
+        form.addRow("Количество визиток", self.count_input)
+        root.addLayout(form)
+
+        hint = QLabel("Список берётся из swyp_cards, где template_id IS NULL. Можно менять выбор вручную.")
+        hint.setStyleSheet("color: #475569;")
+        root.addWidget(hint)
+
+        self.cards_list = QListWidget()
+        self.cards_list.setAlternatingRowColors(True)
+        root.addWidget(self.cards_list, 1)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.Cancel)
+        self.assign_button = buttons.addButton("Присвоить", QDialogButtonBox.AcceptRole)
+        self.assign_button.clicked.connect(self._assign)
+        buttons.rejected.connect(self.reject)
+        root.addWidget(buttons)
+
+    def _create_preview_label(self, title: str) -> QLabel:
+        label = QLabel(f"{title}\n(нет превью)")
+        label.setAlignment(Qt.AlignCenter)
+        label.setMinimumSize(220, 160)
+        label.setStyleSheet(
+            "background: #E2E8F0; border: 1px solid #CBD5E1; border-radius: 12px; padding: 10px;"
+        )
+        return label
+
+    def _load_previews(self) -> None:
+        self._set_preview(self.front_preview, self._template.front_preview, "Front")
+        self._set_preview(self.back_preview, self._template.back_preview, "Back")
+
+    def _load_cards(self) -> None:
+        self.cards_list.clear()
+
+        try:
+            cards = self._swyp_card_assignment_service.list_unassigned()
+        except Exception as exc:
+            QMessageBox.critical(self, "Ошибка загрузки swyp_cards", str(exc))
+            self.assign_button.setEnabled(False)
+            self.count_input.setMaximum(0)
+            self.count_input.setValue(0)
+            return
+
+        self.count_input.blockSignals(True)
+        self.count_input.setMaximum(len(cards))
+        self.count_input.setValue(0)
+        self.count_input.blockSignals(False)
+
+        for card in cards:
+            item = QListWidgetItem()
+            item.setSizeHint(QSize(100, 48))
+            self.cards_list.addItem(item)
+
+            widget = SelectableCardListItem(card, self.cards_list)
+            widget.checked_changed.connect(self._sync_count_from_selection)
+            self.cards_list.setItemWidget(item, widget)
+
+        self._refresh_assign_button_state()
+
+    def _apply_count_selection(self, value: int) -> None:
+        if self._selection_sync_locked:
+            return
+
+        self._selection_sync_locked = True
+        try:
+            for index in range(self.cards_list.count()):
+                item = self.cards_list.item(index)
+                widget = self.cards_list.itemWidget(item)
+                if isinstance(widget, SelectableCardListItem):
+                    widget.set_checked(index < value)
+        finally:
+            self._selection_sync_locked = False
+
+        self._refresh_assign_button_state()
+
+    def _sync_count_from_selection(self) -> None:
+        if self._selection_sync_locked:
+            return
+
+        selected_count = len(self.selected_card_ids())
+        self._selection_sync_locked = True
+        try:
+            self.count_input.blockSignals(True)
+            self.count_input.setValue(selected_count)
+            self.count_input.blockSignals(False)
+        finally:
+            self._selection_sync_locked = False
+
+        self._refresh_assign_button_state()
+
+    def _refresh_assign_button_state(self) -> None:
+        self.assign_button.setEnabled(bool(self.selected_card_ids()))
+
+    def _assign(self) -> None:
+        selected_ids = self.selected_card_ids()
+        if not selected_ids:
+            QMessageBox.warning(self, "Нет выбранных ссылок", "Нужно выбрать хотя бы одну ссылку.")
+            return
+
+        try:
+            updated = self._swyp_card_assignment_service.assign_template(
+                template_id=self._template.id,
+                card_ids=selected_ids,
+            )
+        except Exception as exc:
+            QMessageBox.critical(self, "Ошибка назначения шаблона", str(exc))
+            return
+
+        if updated <= 0:
+            QMessageBox.warning(
+                self,
+                "Шаблон не присвоен",
+                "Ни одна запись не обновлена. Возможно, ссылки уже были назначены параллельно.",
+            )
+            self._load_cards()
+            return
+
+        self.accept()
+
+    def _set_preview(self, target: QLabel, source: str, title: str) -> None:
+        src = (source or "").strip()
+        if not src:
+            target.setText(f"{title}\n(нет превью)")
+            return
+
+        data_pix = _pixmap_from_data_uri(src)
+        if data_pix is not None:
+            self._apply_preview_pixmap(target, data_pix)
+            return
+
+        if _is_url(src):
+            url = QUrl(src)
+            cache_path = self._cache_path_for_url(url)
+            if cache_path.is_file():
+                self._apply_preview_pixmap(target, QPixmap(str(cache_path)))
+                return
+
+            target.setText(f"{title}\nЗагрузка...")
+            req = QNetworkRequest(url)
+            reply = self._net.get(req)
+            self._pending[reply] = (target, cache_path)
+            reply.finished.connect(lambda r=reply: self._on_download_finished(r))
+            return
+
+        path = Path(src).expanduser()
+        if path.is_file():
+            self._apply_preview_pixmap(target, QPixmap(str(path)))
+            return
+
+        target.setText(f"{title}\nПревью не найдено")
+
+    def _apply_preview_pixmap(self, target: QLabel, pixmap: QPixmap) -> None:
+        if pixmap.isNull():
+            target.setText("Превью не удалось загрузить")
+            return
+
+        scaled = pixmap.scaled(260, 180, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        target.setPixmap(scaled)
+
+    def _cache_path_for_url(self, url: QUrl) -> Path:
+        self._template_service.cache_dir.mkdir(parents=True, exist_ok=True)
+        digest = hashlib.sha256(url.toString().encode("utf-8")).hexdigest()
+        suffix = _safe_suffix_from_url(url)
+        return self._template_service.cache_dir / f"{digest}{suffix}"
+
+    def _on_download_finished(self, reply: QNetworkReply) -> None:
+        meta = self._pending.pop(reply, None)
+        try:
+            if meta is None:
+                return
+
+            target, cache_path = meta
+            if reply.error() != QNetworkReply.NetworkError.NoError:
+                target.setText(f"Ошибка загрузки: {reply.errorString()}")
+                return
+
+            data = bytes(reply.readAll())
+            cache_path.parent.mkdir(parents=True, exist_ok=True)
+            cache_path.write_bytes(data)
+            pixmap = QPixmap()
+            pixmap.loadFromData(data)
+            self._apply_preview_pixmap(target, pixmap)
+        finally:
+            reply.deleteLater()
+
+
 class TemplateManagerWindow(QMainWindow):
-    def __init__(self, template_service: TemplateService) -> None:
+    def __init__(
+        self,
+        template_service: TemplateService,
+        swyp_card_assignment_service: SwypCardAssignmentService,
+    ) -> None:
         super().__init__()
         self._template_service = template_service
+        self._swyp_card_assignment_service = swyp_card_assignment_service
 
         self.setWindowTitle("Template Manager")
         self.resize(1200, 720)
@@ -328,8 +612,8 @@ class TemplateManagerWindow(QMainWindow):
         layout.addWidget(info)
 
         self.table = QTableWidget()
-        self.table.setColumnCount(4)
-        self.table.setHorizontalHeaderLabels(["id", "slug", "front_preview", "back_preview"])
+        self.table.setColumnCount(5)
+        self.table.setHorizontalHeaderLabels(["id", "slug", "front_preview", "back_preview", "actions"])
         self.table.verticalHeader().setVisible(False)
         self.table.setEditTriggers(QTableWidget.NoEditTriggers)
         self.table.setSelectionBehavior(QTableWidget.SelectRows)
@@ -342,6 +626,7 @@ class TemplateManagerWindow(QMainWindow):
         header.setSectionResizeMode(1, QHeaderView.Stretch)
         header.setSectionResizeMode(2, QHeaderView.ResizeToContents)
         header.setSectionResizeMode(3, QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(4, QHeaderView.ResizeToContents)
 
         layout.addWidget(self.table, 1)
         self.setCentralWidget(root)
@@ -369,6 +654,18 @@ class TemplateManagerWindow(QMainWindow):
 
             self._set_preview_cell(row, 2, tpl.front_preview)
             self._set_preview_cell(row, 3, tpl.back_preview)
+            self._set_actions_cell(row, tpl)
+
+    def _set_actions_cell(self, row: int, tpl: CardTemplate) -> None:
+        button = QPushButton("Присвоить шаблон")
+        button.clicked.connect(lambda _checked=False, template=tpl: self._open_assign_dialog(template))
+
+        container = QWidget()
+        layout = QVBoxLayout(container)
+        layout.setContentsMargins(6, 6, 6, 6)
+        layout.addWidget(button)
+        layout.addStretch(1)
+        self.table.setCellWidget(row, 4, container)
 
     def _set_preview_cell(self, row: int, col: int, source: str) -> None:
         item = QTableWidgetItem(" ")
@@ -466,6 +763,9 @@ class TemplateManagerWindow(QMainWindow):
             reply.deleteLater()
 
     def _open_preview_for_row(self, row: int, _col: int) -> None:
+        if _col == 4:
+            return
+
         id_item = self.table.item(row, 0)
         if id_item is None:
             return
@@ -478,3 +778,19 @@ class TemplateManagerWindow(QMainWindow):
         dlg = TemplatePreviewDialog(title=title or "Template preview", cache_dir=self._template_service.cache_dir, parent=self)
         dlg.set_images(getattr(tpl, "front_preview", ""), getattr(tpl, "back_preview", ""))
         dlg.exec()
+
+    def _open_assign_dialog(self, template: CardTemplate) -> None:
+        dlg = AssignTemplateDialog(
+            template=template,
+            template_service=self._template_service,
+            swyp_card_assignment_service=self._swyp_card_assignment_service,
+            parent=self,
+        )
+        if dlg.exec() != int(QDialog.DialogCode.Accepted):
+            return
+
+        assigned_count = len(dlg.selected_card_ids())
+        self.statusBar().showMessage(
+            f"Шаблон id={template.id} присвоен {assigned_count} ссылкам",
+            5000,
+        )

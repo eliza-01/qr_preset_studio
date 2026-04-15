@@ -1,14 +1,18 @@
 # Bundled from project root: C:/Projects/qr_preset_studio
 
 # qr_preset_studio/__init__.py
+# qr_preset_studio/__init__.py
 __all__ = []
 
+# qr_preset_studio/application/__init__.py
 # qr_preset_studio/application/__init__.py
 __all__ = []
 
 # qr_preset_studio/application/ports/__init__.py
+# qr_preset_studio/application/ports/__init__.py
 __all__ = []
 
+# qr_preset_studio/application/ports/app_state_repository.py
 # qr_preset_studio/application/ports/app_state_repository.py
 from __future__ import annotations
 
@@ -24,6 +28,7 @@ class AppStateRepository(Protocol):
     def load(self, path: str | Path) -> AppState: ...
 
 # qr_preset_studio/application/ports/preset_repository.py
+# qr_preset_studio/application/ports/preset_repository.py
 from __future__ import annotations
 
 from pathlib import Path
@@ -37,9 +42,27 @@ class PresetRepository(Protocol):
 
     def load(self, path: str | Path) -> Preset: ...
 
+# qr_preset_studio/application/ports/template_repository.py
+# qr_preset_studio/application/ports/template_repository.py
+from __future__ import annotations
+
+from typing import Any, Protocol
+
+from qr_preset_studio.domain.models.template import CardTemplate
+
+
+class TemplateRepository(Protocol):
+    def list_all(self) -> list[CardTemplate]: ...
+
+    def create(self, template: CardTemplate) -> CardTemplate: ...
+
+    def update_side(self, template_id: str, side: str, payload: dict[str, Any], preview: str) -> None: ...
+
+# qr_preset_studio/application/services/__init__.py
 # qr_preset_studio/application/services/__init__.py
 __all__ = []
 
+# qr_preset_studio/application/services/app_state_service.py
 # qr_preset_studio/application/services/app_state_service.py
 from __future__ import annotations
 
@@ -68,6 +91,7 @@ class AppStateService:
         self._repository.save(self._state_file, AppState())
 
 # qr_preset_studio/application/services/preset_service.py
+# qr_preset_studio/application/services/preset_service.py
 from __future__ import annotations
 
 from pathlib import Path
@@ -92,6 +116,7 @@ class PresetService:
         return self._repository.load(path)
 
 # qr_preset_studio/application/services/render_service.py
+# qr_preset_studio/application/services/render_service.py
 from __future__ import annotations
 
 from PIL import Image
@@ -108,6 +133,84 @@ class RenderService:
     def render_export(self, preset: Preset) -> Image.Image:
         return render_export_preset(preset)
 
+# qr_preset_studio/application/services/template_service.py
+# qr_preset_studio/application/services/template_service.py
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Any
+
+from qr_preset_studio.application.ports.template_repository import TemplateRepository
+from qr_preset_studio.domain.models.template import CardTemplate
+
+
+class TemplateService:
+    def __init__(self, repository: TemplateRepository, cache_dir: Path) -> None:
+        self._repository = repository
+        self._cache_dir = cache_dir
+
+    @property
+    def cache_dir(self) -> Path:
+        return self._cache_dir
+
+    def list_all(self) -> list[CardTemplate]:
+        return self._repository.list_all()
+
+    def create_new(
+        self,
+        *,
+        slug: str,
+        side: str,
+        payload: dict[str, Any],
+        preview: str,
+        assets: dict[str, Any] | None = None,
+    ) -> CardTemplate:
+        slug = (slug or "").strip()
+        if not slug:
+            raise ValueError("slug не должен быть пустым")
+
+        side = (side or "").strip().lower()
+        if side not in {"front", "back"}:
+            raise ValueError("side должен быть 'front' или 'back'")
+
+        front_payload: dict[str, Any] = {}
+        back_payload: dict[str, Any] = {}
+        front_preview = ""
+        back_preview = ""
+
+        if side == "front":
+            front_payload = payload
+            front_preview = preview
+        else:
+            back_payload = payload
+            back_preview = preview
+
+        template = CardTemplate(
+            id="",
+            slug=slug,
+            front=front_payload,
+            back=back_payload,
+            front_preview=front_preview,
+            back_preview=back_preview,
+            assets=assets or {},
+        )
+        return self._repository.create(template)
+
+    def update_existing_side(
+        self,
+        *,
+        template_id: str,
+        side: str,
+        payload: dict[str, Any],
+        preview: str,
+    ) -> None:
+        template_id = (template_id or "").strip()
+        if not template_id:
+            raise ValueError("template_id не должен быть пустым")
+
+        self._repository.update_side(template_id, side, payload, preview)
+
+# qr_preset_studio/bootstrap.py
 # qr_preset_studio/bootstrap.py
 from __future__ import annotations
 
@@ -116,9 +219,12 @@ from PySide6.QtWidgets import QApplication
 from qr_preset_studio.application.services.app_state_service import AppStateService
 from qr_preset_studio.application.services.preset_service import PresetService
 from qr_preset_studio.application.services.render_service import RenderService
+from qr_preset_studio.application.services.template_service import TemplateService
+from qr_preset_studio.infrastructure.database.mysql_session import MySqlSessionFactory, MySqlSettings
 from qr_preset_studio.infrastructure.paths import AppPaths
 from qr_preset_studio.infrastructure.persistence.json_app_state_repository import JsonAppStateRepository
 from qr_preset_studio.infrastructure.persistence.json_preset_repository import JsonPresetRepository
+from qr_preset_studio.infrastructure.persistence.mysql_template_repository import MySqlTemplateRepository
 from qr_preset_studio.ui.windows.main_window import MainWindow
 
 
@@ -130,7 +236,13 @@ def run() -> int:
     preset_repository = JsonPresetRepository()
     app_state_repository = JsonAppStateRepository()
 
+    # MySQL templates
+    mysql_settings = MySqlSettings.default_from_env()
+    mysql_session_factory = MySqlSessionFactory(mysql_settings)
+    template_repository = MySqlTemplateRepository(mysql_session_factory, table="swyp_cards_templates")
+
     preset_service = PresetService(repository=preset_repository, presets_dir=paths.presets_dir)
+    template_service = TemplateService(repository=template_repository, cache_dir=paths.templates_cache_dir)
     app_state_service = AppStateService(repository=app_state_repository, state_file=paths.app_state_file)
     render_service = RenderService()
 
@@ -138,13 +250,16 @@ def run() -> int:
         preset_service=preset_service,
         render_service=render_service,
         app_state_service=app_state_service,
+        template_service=template_service,
     )
     window.show()
     return app.exec()
 
 # qr_preset_studio/domain/__init__.py
+# qr_preset_studio/domain/__init__.py
 __all__ = []
 
+# qr_preset_studio/domain/constants.py
 # qr_preset_studio/domain/constants.py
 BODY_SHAPES = ["square", "rounded", "liquid", "spikes", "claws"]
 EYE_FRAME_SHAPES = ["square", "rounded", "classy_rounded", "classy"]
@@ -156,8 +271,10 @@ QR_VERSION_VALUES = ["auto"] + [str(index) for index in range(1, 41)]
 QR_MASK_PATTERN_VALUES = ["auto"] + [str(index) for index in range(8)]
 
 # qr_preset_studio/domain/models/__init__.py
+# qr_preset_studio/domain/models/__init__.py
 __all__ = []
 
+# qr_preset_studio/domain/models/app_state.py
 # qr_preset_studio/domain/models/app_state.py
 from __future__ import annotations
 
@@ -177,6 +294,7 @@ class AppState:
         value = raw.get("last_preset_path", "")
         return cls(last_preset_path=value if isinstance(value, str) else "")
 
+# qr_preset_studio/domain/models/preset.py
 # qr_preset_studio/domain/models/preset.py
 from __future__ import annotations
 
@@ -450,12 +568,167 @@ def _normalize_locked_fields(value: Any) -> dict[str, bool]:
 
     return normalized
 
+# qr_preset_studio/domain/models/template.py
+# qr_preset_studio/domain/models/template.py
+from __future__ import annotations
+
+from dataclasses import asdict, dataclass, field
+from typing import Any
+
+
+@dataclass(slots=True)
+class CardTemplate:
+    """
+    Шаблон визитки (front/back) + превью.
+
+    Важно:
+    - front/back содержат "всю необходимую для воссоздания информацию" (любой JSON).
+    - front_preview/back_preview могут быть:
+        * локальным путем к файлу
+        * URL (https://...), тогда UI скачает и закеширует картинку
+    - assets — любые доп. метаданные/ссылки на ассеты (фоны и т.д.), которые позже уйдут в БД.
+    """
+
+    id: str = ""
+    slug: str = ""
+    front: dict[str, Any] = field(default_factory=dict)
+    back: dict[str, Any] = field(default_factory=dict)
+    front_preview: str = ""
+    back_preview: str = ""
+    assets: dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, raw: dict[str, Any]) -> "CardTemplate":
+        if not isinstance(raw, dict):
+            return cls()
+
+        raw_id = raw.get("id", "")
+        if isinstance(raw_id, (int, float)):
+            template_id = str(int(raw_id))
+        elif isinstance(raw_id, str):
+            template_id = raw_id.strip()
+        else:
+            template_id = ""
+
+        raw_slug = raw.get("slug", "")
+        slug = raw_slug.strip() if isinstance(raw_slug, str) else ""
+
+        front = raw.get("front", {})
+        back = raw.get("back", {})
+        if not isinstance(front, dict):
+            front = {}
+        if not isinstance(back, dict):
+            back = {}
+
+        fp = raw.get("front_preview", "")
+        bp = raw.get("back_preview", "")
+        front_preview = fp.strip() if isinstance(fp, str) else ""
+        back_preview = bp.strip() if isinstance(bp, str) else ""
+
+        assets = raw.get("assets", {})
+        if not isinstance(assets, dict):
+            assets = {}
+
+        return cls(
+            id=template_id,
+            slug=slug,
+            front=front,
+            back=back,
+            front_preview=front_preview,
+            back_preview=back_preview,
+            assets=assets,
+        )
+
+# qr_preset_studio/infrastructure/__init__.py
 # qr_preset_studio/infrastructure/__init__.py
 __all__ = []
 
 # qr_preset_studio/infrastructure/database/__init__.py
+# qr_preset_studio/infrastructure/database/__init__.py
 __all__ = []
 
+# qr_preset_studio/infrastructure/database/mysql_session.py
+# qr_preset_studio/infrastructure/database/mysql_session.py
+from __future__ import annotations
+
+import os
+from dataclasses import dataclass
+
+try:
+    import mysql.connector  # type: ignore
+except Exception:  # pragma: no cover
+    mysql = None  # type: ignore
+
+
+@dataclass(slots=True)
+class MySqlSettings:
+    host: str
+    port: int
+    database: str
+    user: str
+    password: str
+    charset: str = "utf8mb4"
+    collation: str = "utf8mb4_unicode_ci"
+
+    @classmethod
+    def default_from_env(cls) -> "MySqlSettings":
+        # defaults match your docker-compose
+        host = os.environ.get("SWYP_DB_HOST", "127.0.0.1").strip() or "127.0.0.1"
+        port_raw = os.environ.get("SWYP_DB_PORT", "3307").strip() or "3307"
+        database = os.environ.get("SWYP_DB_NAME", "swyp").strip() or "swyp"
+        user = os.environ.get("SWYP_DB_USER", "admin").strip() or "admin"
+        password = os.environ.get("SWYP_DB_PASSWORD", "admin")
+
+        try:
+            port = int(port_raw)
+        except ValueError:
+            port = 3307
+
+        return cls(
+            host=host,
+            port=port,
+            database=database,
+            user=user,
+            password=password,
+        )
+
+
+class MySqlSessionFactory:
+    def __init__(self, settings: MySqlSettings) -> None:
+        self._settings = settings
+
+    @property
+    def settings(self) -> MySqlSettings:
+        return self._settings
+
+    def connect(self):
+        if mysql is None:
+            raise RuntimeError(
+                "Не найден mysql-connector-python. Установи: pip install mysql-connector-python"
+            )
+
+        conn = mysql.connector.connect(
+            host=self._settings.host,
+            port=self._settings.port,
+            user=self._settings.user,
+            password=self._settings.password,
+            database=self._settings.database,
+            autocommit=False,
+        )
+
+        # Ensure utf8mb4
+        cur = conn.cursor()
+        try:
+            cur.execute(f"SET NAMES {self._settings.charset} COLLATE {self._settings.collation}")
+        finally:
+            cur.close()
+
+        return conn
+
+# qr_preset_studio/infrastructure/database/session.py
 # qr_preset_studio/infrastructure/database/session.py
 from __future__ import annotations
 
@@ -478,6 +751,7 @@ class DatabaseSessionFactory:
         return sqlite3.connect(self._settings.database_file)
 
 # qr_preset_studio/infrastructure/paths.py
+# qr_preset_studio/infrastructure/paths.py
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -488,6 +762,8 @@ from pathlib import Path
 class AppPaths:
     root_dir: Path
     presets_dir: Path
+    templates_dir: Path
+    templates_cache_dir: Path
     database_dir: Path
     database_file: Path
     app_state_file: Path
@@ -495,25 +771,36 @@ class AppPaths:
     @classmethod
     def default(cls) -> "AppPaths":
         root_dir = Path.home() / "QRPresetStudio"
+
         presets_dir = root_dir / "presets"
+
+        templates_dir = root_dir / "templates"
+        templates_cache_dir = root_dir / "template_cache"
+
         database_dir = root_dir / "database"
         database_file = database_dir / "qr_preset_studio.sqlite3"
         app_state_file = root_dir / "app_state.json"
 
         presets_dir.mkdir(parents=True, exist_ok=True)
+        templates_dir.mkdir(parents=True, exist_ok=True)
+        templates_cache_dir.mkdir(parents=True, exist_ok=True)
         database_dir.mkdir(parents=True, exist_ok=True)
 
         return cls(
             root_dir=root_dir,
             presets_dir=presets_dir,
+            templates_dir=templates_dir,
+            templates_cache_dir=templates_cache_dir,
             database_dir=database_dir,
             database_file=database_file,
             app_state_file=app_state_file,
         )
 
 # qr_preset_studio/infrastructure/persistence/__init__.py
+# qr_preset_studio/infrastructure/persistence/__init__.py
 __all__ = []
 
+# qr_preset_studio/infrastructure/persistence/json_app_state_repository.py
 # qr_preset_studio/infrastructure/persistence/json_app_state_repository.py
 from __future__ import annotations
 
@@ -545,6 +832,7 @@ class JsonAppStateRepository:
         return AppState.from_dict(raw)
 
 # qr_preset_studio/infrastructure/persistence/json_preset_repository.py
+# qr_preset_studio/infrastructure/persistence/json_preset_repository.py
 from __future__ import annotations
 
 import json
@@ -564,9 +852,280 @@ class JsonPresetRepository:
         raw = json.loads(source.read_text(encoding="utf-8"))
         return Preset.from_dict(raw)
 
+# qr_preset_studio/infrastructure/persistence/json_template_repository.py
+# qr_preset_studio/infrastructure/persistence/json_template_repository.py
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+from qr_preset_studio.domain.models.template import CardTemplate
+
+
+class JsonTemplateRepository:
+    def save(self, path: str | Path, template: CardTemplate) -> None:
+        target = Path(path)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(json.dumps(template.to_dict(), ensure_ascii=False, indent=2), encoding="utf-8")
+
+    def load(self, path: str | Path) -> CardTemplate:
+        source = Path(path)
+        raw = json.loads(source.read_text(encoding="utf-8"))
+        if not isinstance(raw, dict):
+            return CardTemplate()
+        return CardTemplate.from_dict(raw)
+
+# qr_preset_studio/infrastructure/persistence/mysql_template_repository.py
+# qr_preset_studio/infrastructure/persistence/mysql_template_repository.py
+from __future__ import annotations
+
+import json
+from dataclasses import dataclass
+from typing import Any
+
+from qr_preset_studio.domain.models.template import CardTemplate
+from qr_preset_studio.infrastructure.database.mysql_session import MySqlSessionFactory
+
+
+@dataclass(slots=True)
+class _TemplateColumns:
+    table: str
+    id_col: str
+    slug_col: str
+    front_col: str | None
+    back_col: str | None
+    front_preview_col: str | None
+    back_preview_col: str | None
+    assets_col: str | None
+
+
+class MySqlTemplateRepository:
+    def __init__(self, session_factory: MySqlSessionFactory, table: str = "swyp_cards_templates") -> None:
+        self._session_factory = session_factory
+        self._table = table
+        self._columns: _TemplateColumns | None = None
+
+    def list_all(self) -> list[CardTemplate]:
+        cols = self._discover_columns()
+
+        select_cols: list[str] = [cols.id_col, cols.slug_col]
+        if cols.front_col:
+            select_cols.append(cols.front_col)
+        if cols.back_col:
+            select_cols.append(cols.back_col)
+        if cols.front_preview_col:
+            select_cols.append(cols.front_preview_col)
+        if cols.back_preview_col:
+            select_cols.append(cols.back_preview_col)
+        if cols.assets_col:
+            select_cols.append(cols.assets_col)
+
+        sql = f"SELECT {', '.join(select_cols)} FROM {cols.table} ORDER BY {cols.id_col} DESC"
+
+        conn = self._session_factory.connect()
+        try:
+            cur = conn.cursor()
+            try:
+                cur.execute(sql)
+                rows = cur.fetchall()
+            finally:
+                cur.close()
+        finally:
+            conn.close()
+
+        templates: list[CardTemplate] = []
+        for row in rows:
+            data = dict(zip(select_cols, row))
+            templates.append(self._row_to_template(cols, data))
+        return templates
+
+    def create(self, template: CardTemplate) -> CardTemplate:
+        cols = self._discover_columns()
+
+        fields: list[str] = [cols.slug_col]
+        values: list[Any] = [template.slug]
+
+        if cols.front_col is not None:
+            fields.append(cols.front_col)
+            values.append(_dump_json(template.front))
+        if cols.back_col is not None:
+            fields.append(cols.back_col)
+            values.append(_dump_json(template.back))
+        if cols.front_preview_col is not None:
+            fields.append(cols.front_preview_col)
+            values.append(template.front_preview)
+        if cols.back_preview_col is not None:
+            fields.append(cols.back_preview_col)
+            values.append(template.back_preview)
+        if cols.assets_col is not None:
+            fields.append(cols.assets_col)
+            values.append(_dump_json(template.assets))
+
+        placeholders = ", ".join(["%s"] * len(fields))
+        sql = f"INSERT INTO {cols.table} ({', '.join(fields)}) VALUES ({placeholders})"
+
+        conn = self._session_factory.connect()
+        try:
+            cur = conn.cursor()
+            try:
+                cur.execute(sql, values)
+                conn.commit()
+                new_id = str(cur.lastrowid)
+            finally:
+                cur.close()
+        finally:
+            conn.close()
+
+        # return with id
+        created = CardTemplate(
+            id=new_id,
+            slug=template.slug,
+            front=template.front,
+            back=template.back,
+            front_preview=template.front_preview,
+            back_preview=template.back_preview,
+            assets=template.assets,
+        )
+        return created
+
+    def update_side(self, template_id: str, side: str, payload: dict[str, Any], preview: str) -> None:
+        cols = self._discover_columns()
+        side = (side or "").strip().lower()
+        if side not in {"front", "back"}:
+            raise ValueError("side должен быть 'front' или 'back'")
+
+        set_parts: list[str] = []
+        values: list[Any] = []
+
+        if side == "front":
+            if cols.front_col is not None:
+                set_parts.append(f"{cols.front_col}=%s")
+                values.append(_dump_json(payload))
+            if cols.front_preview_col is not None:
+                set_parts.append(f"{cols.front_preview_col}=%s")
+                values.append(preview)
+        else:
+            if cols.back_col is not None:
+                set_parts.append(f"{cols.back_col}=%s")
+                values.append(_dump_json(payload))
+            if cols.back_preview_col is not None:
+                set_parts.append(f"{cols.back_preview_col}=%s")
+                values.append(preview)
+
+        if not set_parts:
+            raise RuntimeError(
+                f"В таблице {cols.table} нет колонок для сохранения {side}. "
+                "Нужны колонки для JSON и/или preview."
+            )
+
+        values.append(template_id)
+        sql = f"UPDATE {cols.table} SET {', '.join(set_parts)} WHERE {cols.id_col}=%s"
+
+        conn = self._session_factory.connect()
+        try:
+            cur = conn.cursor()
+            try:
+                cur.execute(sql, values)
+                conn.commit()
+            finally:
+                cur.close()
+        finally:
+            conn.close()
+
+    def _discover_columns(self) -> _TemplateColumns:
+        if self._columns is not None:
+            return self._columns
+
+        conn = self._session_factory.connect()
+        try:
+            cur = conn.cursor()
+            try:
+                cur.execute(f"SHOW COLUMNS FROM {self._table}")
+                rows = cur.fetchall()
+            finally:
+                cur.close()
+        finally:
+            conn.close()
+
+        names = {str(r[0]) for r in rows}
+
+        def pick(required: bool, *candidates: str) -> str | None:
+            for c in candidates:
+                if c in names:
+                    return c
+            if required:
+                raise RuntimeError(
+                    f"В таблице {self._table} не найдена нужная колонка из {list(candidates)}. "
+                    f"Найдены колонки: {sorted(names)}"
+                )
+            return None
+
+        cols = _TemplateColumns(
+            table=self._table,
+            id_col=pick(True, "id", "template_id") or "id",
+            slug_col=pick(True, "slug") or "slug",
+            front_col=pick(False, "front", "front_json", "front_data"),
+            back_col=pick(False, "back", "back_json", "back_data"),
+            front_preview_col=pick(False, "front_preview", "front_preview_url", "front_preview_data"),
+            back_preview_col=pick(False, "back_preview", "back_preview_url", "back_preview_data"),
+            assets_col=pick(False, "assets", "assets_json"),
+        )
+
+        self._columns = cols
+        return cols
+
+    def _row_to_template(self, cols: _TemplateColumns, row: dict[str, Any]) -> CardTemplate:
+        template_id = row.get(cols.id_col, "")
+        slug = row.get(cols.slug_col, "")
+
+        front = _load_json(row.get(cols.front_col)) if cols.front_col else {}
+        back = _load_json(row.get(cols.back_col)) if cols.back_col else {}
+        assets = _load_json(row.get(cols.assets_col)) if cols.assets_col else {}
+
+        fp = row.get(cols.front_preview_col, "") if cols.front_preview_col else ""
+        bp = row.get(cols.back_preview_col, "") if cols.back_preview_col else ""
+
+        return CardTemplate(
+            id=str(template_id) if template_id is not None else "",
+            slug=str(slug) if slug is not None else "",
+            front=front,
+            back=back,
+            front_preview=str(fp) if fp is not None else "",
+            back_preview=str(bp) if bp is not None else "",
+            assets=assets,
+        )
+
+
+def _dump_json(value: Any) -> str:
+    return json.dumps(value if value is not None else {}, ensure_ascii=False)
+
+
+def _load_json(value: Any) -> dict[str, Any]:
+    if value is None:
+        return {}
+    if isinstance(value, dict):
+        return value
+    if isinstance(value, (bytes, bytearray)):
+        try:
+            value = value.decode("utf-8", errors="replace")
+        except Exception:
+            return {}
+    if isinstance(value, str):
+        s = value.strip()
+        if not s:
+            return {}
+        try:
+            raw = json.loads(s)
+        except Exception:
+            return {}
+        return raw if isinstance(raw, dict) else {}
+    return {}
+
+# qr_preset_studio/infrastructure/rendering/__init__.py
 # qr_preset_studio/infrastructure/rendering/__init__.py
 __all__ = []
 
+# qr_preset_studio/infrastructure/rendering/body_shapes/__init__.py
 # qr_preset_studio/infrastructure/rendering/body_shapes/__init__.py
 from __future__ import annotations
 
@@ -680,12 +1239,34 @@ def _claw_connection_tile(
     tile = _top_claw_tile(preset, width, height, lean_right)
 
     if exposed_side == "top":
-        return tile
-    if exposed_side == "right":
-        return tile.transpose(Image.Transpose.ROTATE_270)
-    if exposed_side == "bottom":
-        return tile.transpose(Image.Transpose.ROTATE_180)
-    return tile.transpose(Image.Transpose.ROTATE_90)
+        rotated = tile
+    elif exposed_side == "right":
+        rotated = tile.transpose(Image.Transpose.ROTATE_270)
+    elif exposed_side == "bottom":
+        rotated = tile.transpose(Image.Transpose.ROTATE_180)
+    else:
+        rotated = tile.transpose(Image.Transpose.ROTATE_90)
+
+    _seal_connection_edge(rotated, exposed_side)
+    return rotated
+
+
+def _seal_connection_edge(tile: Image.Image, exposed_side: str) -> None:
+    width, height = tile.size
+    draw = ImageDraw.Draw(tile)
+
+    seam = max(2, min(width, height) // 6)
+
+    # exposed_side = куда смотрит коготь
+    # connection side = противоположная сторона, где он крепится к модулю
+    if exposed_side == "top":
+        draw.rectangle((0, height - seam, width - 1, height - 1), fill=255)
+    elif exposed_side == "right":
+        draw.rectangle((0, 0, seam - 1, height - 1), fill=255)
+    elif exposed_side == "bottom":
+        draw.rectangle((0, 0, width - 1, seam - 1), fill=255)
+    else:  # left
+        draw.rectangle((width - seam, 0, width - 1, height - 1), fill=255)
 
 
 def _resolve_lean_right(preset: Preset, row: int, col: int) -> bool:
@@ -708,27 +1289,50 @@ def _top_claw_tile(preset: Preset, width: int, height: int, lean_right: bool) ->
     if not lean_right:
         tile = tile.transpose(Image.Transpose.FLIP_LEFT_RIGHT)
 
-    return tile.resize((width, height), Image.Resampling.LANCZOS)
+    tile = tile.resize((width, height), Image.Resampling.LANCZOS)
+
+    # Бинаризуем маску, чтобы не было полупрозрачной щели на стыке.
+    tile = tile.point(lambda p: 255 if p >= 32 else 0)
+
+    return tile
 
 
 def _top_claw_polygon(preset: Preset, width: int, height: int) -> list[tuple[int, int]]:
     steps = max(4, preset.claw_curve_steps)
 
-    base_left = (0.0, float(height))
-    base_right = (float(width), float(height))
-    tip = (width * preset.claw_tip_x, height * preset.claw_tip_y)
+    max_x = float(width - 1)
+    max_y = float(height - 1)
+
+    base_left = (0.0, max_y)
+    base_right = (max_x, max_y)
+    tip = (
+        _clamp_float(width * preset.claw_tip_x, 0.0, max_x),
+        _clamp_float(height * preset.claw_tip_y, 0.0, max_y),
+    )
 
     outer_curve = _bezier_points(
         base_left,
-        (width * preset.claw_outer_ctrl1_x, height * preset.claw_outer_ctrl1_y),
-        (width * preset.claw_outer_ctrl2_x, height * preset.claw_outer_ctrl2_y),
+        (
+            _clamp_float(width * preset.claw_outer_ctrl1_x, 0.0, max_x),
+            _clamp_float(height * preset.claw_outer_ctrl1_y, 0.0, max_y),
+        ),
+        (
+            _clamp_float(width * preset.claw_outer_ctrl2_x, 0.0, max_x),
+            _clamp_float(height * preset.claw_outer_ctrl2_y, 0.0, max_y),
+        ),
         tip,
         steps=steps,
     )
     inner_curve = _bezier_points(
         tip,
-        (width * preset.claw_inner_ctrl1_x, height * preset.claw_inner_ctrl1_y),
-        (width * preset.claw_inner_ctrl2_x, height * preset.claw_inner_ctrl2_y),
+        (
+            _clamp_float(width * preset.claw_inner_ctrl1_x, 0.0, max_x),
+            _clamp_float(height * preset.claw_inner_ctrl1_y, 0.0, max_y),
+        ),
+        (
+            _clamp_float(width * preset.claw_inner_ctrl2_x, 0.0, max_x),
+            _clamp_float(height * preset.claw_inner_ctrl2_y, 0.0, max_y),
+        ),
         base_right,
         steps=steps,
     )
@@ -740,6 +1344,10 @@ def _top_claw_polygon(preset: Preset, width: int, height: int) -> list[tuple[int
         base_left,
     ]
     return [(int(round(x)), int(round(y))) for x, y in polygon]
+
+
+def _clamp_float(value: float, minimum: float, maximum: float) -> float:
+    return max(minimum, min(maximum, value))
 
 
 def _bezier_points(
@@ -828,6 +1436,7 @@ def _single_connection_exposed_side(corners: tuple[bool, bool, bool, bool]) -> s
     return None
 
 # qr_preset_studio/infrastructure/rendering/body_shapes/common.py
+# qr_preset_studio/infrastructure/rendering/body_shapes/common.py
 from __future__ import annotations
 
 from collections.abc import Iterator
@@ -910,6 +1519,7 @@ def _has_down(body_map: list[list[bool]], row: int, col: int) -> bool:
 def _has_left(body_map: list[list[bool]], row: int, col: int) -> bool:
     return col > 0 and body_map[row][col - 1]
 
+# qr_preset_studio/infrastructure/rendering/body_shapes/liquid.py
 # qr_preset_studio/infrastructure/rendering/body_shapes/liquid.py
 from __future__ import annotations
 
@@ -1062,6 +1672,7 @@ def _fill_rect(draw: ImageDraw.ImageDraw, box: tuple[int, int, int, int]) -> Non
     draw.rectangle((left, top, right - 1, bottom - 1), fill=255)
 
 # qr_preset_studio/infrastructure/rendering/body_shapes/rounded.py
+# qr_preset_studio/infrastructure/rendering/body_shapes/rounded.py
 from __future__ import annotations
 
 from PIL import Image, ImageDraw
@@ -1193,6 +1804,7 @@ def _fill_rect(draw: ImageDraw.ImageDraw, box: tuple[int, int, int, int], fill: 
         return
     draw.rectangle((left, top, right - 1, bottom - 1), fill=fill)
 
+# qr_preset_studio/infrastructure/rendering/body_shapes/spikes.py
 # qr_preset_studio/infrastructure/rendering/body_shapes/spikes.py
 from __future__ import annotations
 
@@ -1477,6 +2089,7 @@ def _fill_rect(draw: ImageDraw.ImageDraw, box: tuple[int, int, int, int], fill: 
     draw.rectangle((left, top, right - 1, bottom - 1), fill=fill)
 
 # qr_preset_studio/infrastructure/rendering/body_shapes/square.py
+# qr_preset_studio/infrastructure/rendering/body_shapes/square.py
 from __future__ import annotations
 
 from PIL import Image
@@ -1493,6 +2106,7 @@ def render_square_body(
 ) -> None:
     paint_module_colors(canvas, preset, layout, body_map)
 
+# qr_preset_studio/infrastructure/rendering/canvas.py
 # qr_preset_studio/infrastructure/rendering/canvas.py
 from __future__ import annotations
 
@@ -1533,6 +2147,7 @@ def build_canvas(preset: Preset) -> Image.Image:
     canvas.paste(image, (pos_x, pos_y), image)
     return canvas
 
+# qr_preset_studio/infrastructure/rendering/color_map.py
 # qr_preset_studio/infrastructure/rendering/color_map.py
 from __future__ import annotations
 
@@ -1583,6 +2198,7 @@ def _gradient_offset_px(preset: Preset) -> int:
         return preset.gradient_offset_diagonal_up_px
     return preset.gradient_offset_diagonal_down_px
 
+# qr_preset_studio/infrastructure/rendering/composer.py
 # qr_preset_studio/infrastructure/rendering/composer.py
 from __future__ import annotations
 
@@ -1848,6 +2464,7 @@ def _visible_layer(
     return layer.crop(crop_box), (visible_left, visible_top)
 
 # qr_preset_studio/infrastructure/rendering/constants.py
+# qr_preset_studio/infrastructure/rendering/constants.py
 FINDER_SIZE = 7
 FINDER_BALL_OFFSET = 2
 FINDER_BALL_SIZE = 3
@@ -1859,6 +2476,7 @@ MAX_QR_LAYER_SIDE = 6144
 MAX_EXPORT_SIDE = 12000
 ROUNDED_QR_LAYER_SUPERSAMPLE = 2.0
 
+# qr_preset_studio/infrastructure/rendering/drawers.py
 # qr_preset_studio/infrastructure/rendering/drawers.py
 from __future__ import annotations
 
@@ -1977,6 +2595,7 @@ def _classy_corners(finder_position: str) -> tuple[bool, bool, bool, bool]:
     return mapping.get(finder_position, mapping["top_left"])
 
 # qr_preset_studio/infrastructure/rendering/geometry.py
+# qr_preset_studio/infrastructure/rendering/geometry.py
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -2059,6 +2678,7 @@ def active_rect(
     return left, top, right, bottom
 
 # qr_preset_studio/infrastructure/rendering/preview.py
+# qr_preset_studio/infrastructure/rendering/preview.py
 from __future__ import annotations
 
 from PIL import Image
@@ -2086,6 +2706,7 @@ def render_preview(preset: Preset, zoom_percent: int = 100) -> Image.Image:
     )
     return preview_image.resize(zoomed_size, Image.Resampling.NEAREST)
 
+# qr_preset_studio/infrastructure/rendering/qr_matrix.py
 # qr_preset_studio/infrastructure/rendering/qr_matrix.py
 from __future__ import annotations
 
@@ -2159,11 +2780,14 @@ def _overflow_message(preset: Preset) -> str:
     )
 
 # qr_preset_studio/ui/__init__.py
+# qr_preset_studio/ui/__init__.py
 __all__ = []
 
 # qr_preset_studio/ui/forms/__init__.py
+# qr_preset_studio/ui/forms/__init__.py
 __all__ = []
 
+# qr_preset_studio/ui/forms/preset_editor.py
 # qr_preset_studio/ui/forms/preset_editor.py
 from __future__ import annotations
 
@@ -2420,8 +3044,10 @@ def _mask_text(value: int) -> str:
     return "auto" if value < 0 else str(value)
 
 # qr_preset_studio/ui/panels/__init__.py
+# qr_preset_studio/ui/panels/__init__.py
 __all__ = []
 
+# qr_preset_studio/ui/panels/actions_panel.py
 # qr_preset_studio/ui/panels/actions_panel.py
 from __future__ import annotations
 
@@ -2434,23 +3060,34 @@ class ActionsPanel(QGroupBox):
     load_requested = Signal()
     export_requested = Signal()
 
+    # templates
+    save_template_requested = Signal()
+    template_manager_requested = Signal()
+
     def __init__(self) -> None:
         super().__init__("Действия")
         layout = QVBoxLayout(self)
         layout.setSpacing(10)
 
         save_button = QPushButton("Сохранить пресет")
+        save_template_button = QPushButton("Сохранить шаблон")
         load_button = QPushButton("Загрузить пресет")
         export_button = QPushButton("Экспорт PNG")
+        templates_button = QPushButton("Открыть Template Manager")
 
         save_button.clicked.connect(self.save_requested)
+        save_template_button.clicked.connect(self.save_template_requested)
         load_button.clicked.connect(self.load_requested)
         export_button.clicked.connect(self.export_requested)
+        templates_button.clicked.connect(self.template_manager_requested)
 
         layout.addWidget(save_button)
+        layout.addWidget(save_template_button)
         layout.addWidget(load_button)
         layout.addWidget(export_button)
+        layout.addWidget(templates_button)
 
+# qr_preset_studio/ui/panels/background_panel.py
 # qr_preset_studio/ui/panels/background_panel.py
 from __future__ import annotations
 
@@ -2545,6 +3182,7 @@ def _spin(minimum: int, maximum: int, suffix: str = "") -> QSpinBox:
         spin.setSuffix(suffix)
     return spin
 
+# qr_preset_studio/ui/panels/canvas_panel.py
 # qr_preset_studio/ui/panels/canvas_panel.py
 from __future__ import annotations
 
@@ -2661,6 +3299,7 @@ def _swap_column(button: QPushButton) -> QWidget:
     layout.addStretch(1)
     return column
 
+# qr_preset_studio/ui/panels/claw_panel.py
 # qr_preset_studio/ui/panels/claw_panel.py
 from __future__ import annotations
 
@@ -2823,6 +3462,7 @@ def _float_spin(minimum: float, maximum: float) -> QDoubleSpinBox:
     return spin
 
 # qr_preset_studio/ui/panels/content_panel.py
+# qr_preset_studio/ui/panels/content_panel.py
 from __future__ import annotations
 
 from PySide6.QtCore import Signal
@@ -2965,6 +3605,7 @@ def _field_column(title: str, control: QWidget) -> QWidget:
     return column
 
 # qr_preset_studio/ui/panels/preview_panel.py
+# qr_preset_studio/ui/panels/preview_panel.py
 from __future__ import annotations
 
 from PIL.ImageQt import ImageQt
@@ -3040,6 +3681,7 @@ class PreviewPanel(QWidget):
         self.zoom_value_label.setText(f"{value}%")
 
 # qr_preset_studio/ui/panels/qr_card_panel.py
+# qr_preset_studio/ui/panels/qr_card_panel.py
 from __future__ import annotations
 
 from PySide6.QtCore import Signal
@@ -3109,6 +3751,7 @@ def _spin(minimum: int, maximum: int, suffix: str = "") -> QSpinBox:
         spin.setSuffix(suffix)
     return spin
 
+# qr_preset_studio/ui/panels/qr_style_panel.py
 # qr_preset_studio/ui/panels/qr_style_panel.py
 from __future__ import annotations
 
@@ -3252,8 +3895,10 @@ def _spin(minimum: int, maximum: int, suffix: str = "") -> QSpinBox:
     return spin
 
 # qr_preset_studio/ui/widgets/__init__.py
+# qr_preset_studio/ui/widgets/__init__.py
 __all__ = []
 
+# qr_preset_studio/ui/widgets/collapsible_section.py
 # qr_preset_studio/ui/widgets/collapsible_section.py
 from __future__ import annotations
 
@@ -3311,6 +3956,7 @@ class CollapsibleSection(QWidget):
         self.content_widget.setVisible(expanded)
 
 # qr_preset_studio/ui/widgets/color_button.py
+# qr_preset_studio/ui/widgets/color_button.py
 from __future__ import annotations
 
 from PySide6.QtGui import QColor
@@ -3352,6 +3998,7 @@ class ColorButton(QPushButton):
             "}"
         )
 
+# qr_preset_studio/ui/widgets/lockable_field.py
 # qr_preset_studio/ui/widgets/lockable_field.py
 from __future__ import annotations
 
@@ -3412,30 +4059,41 @@ class LockableField(QWidget):
         self.state_changed.emit()
 
 # qr_preset_studio/ui/windows/__init__.py
+# qr_preset_studio/ui/windows/__init__.py
 __all__ = []
 
 # qr_preset_studio/ui/windows/main_window.py
+# qr_preset_studio/ui/windows/main_window.py
 from __future__ import annotations
 
+import base64
+import io
+import sys
 from pathlib import Path
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QProcess, Qt
 from PySide6.QtWidgets import (
+    QDialog,
     QFileDialog,
     QHBoxLayout,
     QMainWindow,
     QMessageBox,
+    QPushButton,
     QScrollArea,
     QSplitter,
+    QVBoxLayout,
     QWidget,
 )
 
 from qr_preset_studio.application.services.app_state_service import AppStateService
 from qr_preset_studio.application.services.preset_service import PresetService
 from qr_preset_studio.application.services.render_service import RenderService
+from qr_preset_studio.application.services.template_service import TemplateService
 from qr_preset_studio.domain.models.preset import Preset
 from qr_preset_studio.ui.forms.preset_editor import PresetEditor
 from qr_preset_studio.ui.panels.preview_panel import PreviewPanel
+from qr_preset_studio.ui.windows.save_template_dialog import SaveTemplateDialog
+from qr_preset_studio.ui.windows.template_manager_window import TemplateManagerWindow
 
 
 class MainWindow(QMainWindow):
@@ -3444,12 +4102,16 @@ class MainWindow(QMainWindow):
         preset_service: PresetService,
         render_service: RenderService,
         app_state_service: AppStateService,
+        template_service: TemplateService,
     ) -> None:
         super().__init__()
         self._preset_service = preset_service
         self._render_service = render_service
         self._app_state_service = app_state_service
+        self._template_service = template_service
+
         self._preset = Preset()
+        self._template_manager: TemplateManagerWindow | None = None
 
         self.setWindowTitle("QR Preset Studio")
         self.resize(1480, 920)
@@ -3462,12 +4124,13 @@ class MainWindow(QMainWindow):
 
     def _build_ui(self) -> None:
         root = QWidget()
-        layout = QHBoxLayout(root)
+        layout = QVBoxLayout(root)
         layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(10)
 
         splitter = QSplitter(Qt.Horizontal)
         splitter.setChildrenCollapsible(False)
-        layout.addWidget(splitter)
+        layout.addWidget(splitter, 1)
 
         controls_scroll = QScrollArea()
         controls_scroll.setWidgetResizable(True)
@@ -3479,16 +4142,91 @@ class MainWindow(QMainWindow):
         splitter.addWidget(self.preview_panel)
         splitter.setSizes([480, 980])
 
+        footer = QHBoxLayout()
+        footer.addStretch(1)
+
+        self.restart_button = QPushButton("Перезапустить приложение")
+        self.restart_button.setFixedHeight(36)
+        footer.addWidget(self.restart_button)
+
+        layout.addLayout(footer)
+
         self.setCentralWidget(root)
 
     def _bind_events(self) -> None:
         self.editor.changed.connect(self._refresh_preview)
         self.editor.background_panel.browse_requested.connect(self._choose_background)
         self.editor.background_panel.clear_requested.connect(self._clear_background)
+
         self.editor.actions_panel.save_requested.connect(self._save_preset)
         self.editor.actions_panel.load_requested.connect(self._load_preset)
         self.editor.actions_panel.export_requested.connect(self._export_png)
+
+        self.editor.actions_panel.save_template_requested.connect(self._save_template_to_db)
+        self.editor.actions_panel.template_manager_requested.connect(self._open_template_manager)
+
         self.preview_panel.zoom_changed.connect(self._refresh_preview)
+        self.restart_button.clicked.connect(self._restart_application)
+
+    def _open_template_manager(self) -> None:
+        if self._template_manager is None:
+            self._template_manager = TemplateManagerWindow(self._template_service)
+
+        self._template_manager.reload()
+        self._template_manager.show()
+        self._template_manager.raise_()
+        self._template_manager.activateWindow()
+
+    def _save_template_to_db(self) -> None:
+        preset = self.editor.to_preset()
+        payload = preset.to_dict()
+
+        # preview as data URI PNG (temporary until asset server is wired)
+        try:
+            preview_image = self._render_service.render_preview(preset, 100)
+            preview_uri = _png_data_uri(preview_image)
+        except Exception as exc:
+            QMessageBox.critical(self, "Ошибка превью", str(exc))
+            return
+
+        # load current templates list to choose existing/create new
+        try:
+            templates = self._template_service.list_all()
+        except Exception as exc:
+            QMessageBox.critical(self, "Ошибка БД", str(exc))
+            return
+
+        dlg = SaveTemplateDialog(templates, parent=self)
+        if dlg.exec() != int(QDialog.DialogCode.Accepted):
+            return
+
+        try:
+            if dlg.is_new():
+                created = self._template_service.create_new(
+                    slug=dlg.slug(),
+                    side=dlg.side(),
+                    payload=payload,
+                    preview=preview_uri,
+                    assets={},
+                )
+                self.statusBar().showMessage(f"Шаблон создан: id={created.id}, slug={created.slug}", 5000)
+            else:
+                self._template_service.update_existing_side(
+                    template_id=dlg.template_id(),
+                    side=dlg.side(),
+                    payload=payload,
+                    preview=preview_uri,
+                )
+                self.statusBar().showMessage(
+                    f"Шаблон обновлён: id={dlg.template_id()} ({dlg.side()})",
+                    5000,
+                )
+        except Exception as exc:
+            QMessageBox.critical(self, "Ошибка сохранения шаблона", str(exc))
+            return
+
+        if self._template_manager is not None:
+            self._template_manager.reload()
 
     def _restore_initial_preset(self) -> None:
         last_path = self._app_state_service.last_preset_path()
@@ -3616,3 +4354,606 @@ class MainWindow(QMainWindow):
     def _clear_background(self) -> None:
         self.editor.background_panel.set_background_path("")
         self._refresh_preview()
+
+    def _restart_application(self) -> None:
+        program = sys.executable
+        arguments = sys.argv[:]
+        working_directory = str(Path.cwd())
+
+        restarted = QProcess.startDetached(program, arguments, working_directory)
+        if not restarted:
+            QMessageBox.critical(self, "Ошибка перезапуска", "Не удалось запустить новый экземпляр приложения.")
+            return
+
+        self.close()
+
+
+def _png_data_uri(pil_image) -> str:
+    buf = io.BytesIO()
+    pil_image.save(buf, format="PNG")
+    b64 = base64.b64encode(buf.getvalue()).decode("ascii")
+    return f"data:image/png;base64,{b64}"
+
+# qr_preset_studio/ui/windows/save_template_dialog.py
+# qr_preset_studio/ui/windows/save_template_dialog.py
+from __future__ import annotations
+
+from PySide6.QtCore import Qt
+from PySide6.QtWidgets import (
+    QComboBox,
+    QDialog,
+    QDialogButtonBox,
+    QFormLayout,
+    QLabel,
+    QLineEdit,
+    QMessageBox,
+    QVBoxLayout,
+)
+
+from qr_preset_studio.domain.models.template import CardTemplate
+
+
+class SaveTemplateDialog(QDialog):
+    def __init__(self, templates: list[CardTemplate], parent=None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("Сохранить шаблон")
+        self.resize(520, 220)
+
+        self._templates = templates
+
+        root = QVBoxLayout(self)
+        root.setContentsMargins(12, 12, 12, 12)
+        root.setSpacing(10)
+
+        hint = QLabel(
+            "Выбери существующий шаблон для замены front/back\n"
+            "или выбери создание нового (укажи slug)."
+        )
+        hint.setStyleSheet("color: #475569;")
+        root.addWidget(hint)
+
+        self.template_combo = QComboBox()
+        self.template_combo.addItem("➕ Создать новый шаблон", userData=None)
+        for tpl in templates:
+            label = f"{tpl.id} | {tpl.slug}".strip()
+            self.template_combo.addItem(label, userData=str(tpl.id))
+
+        self.slug_input = QLineEdit()
+        self.slug_input.setPlaceholderText("например: minimal_black")
+
+        self.side_combo = QComboBox()
+        self.side_combo.addItems(["front", "back"])
+
+        form = QFormLayout()
+        form.setSpacing(10)
+        form.addRow("Шаблон", self.template_combo)
+        form.addRow("Slug (только для нового)", self.slug_input)
+        form.addRow("Сторона", self.side_combo)
+
+        root.addLayout(form)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
+        buttons.accepted.connect(self._validate_and_accept)
+        buttons.rejected.connect(self.reject)
+        root.addWidget(buttons)
+
+        self.template_combo.currentIndexChanged.connect(self._sync_state)
+        self._sync_state()
+
+    def is_new(self) -> bool:
+        return self.template_combo.currentData() is None
+
+    def template_id(self) -> str:
+        value = self.template_combo.currentData()
+        return "" if value is None else str(value)
+
+    def slug(self) -> str:
+        return self.slug_input.text().strip()
+
+    def side(self) -> str:
+        return self.side_combo.currentText().strip().lower()
+
+    def _sync_state(self) -> None:
+        new_mode = self.is_new()
+        self.slug_input.setEnabled(new_mode)
+        if not new_mode:
+            self.slug_input.setText("")
+
+    def _validate_and_accept(self) -> None:
+        side = self.side()
+        if side not in {"front", "back"}:
+            QMessageBox.warning(self, "Ошибка", "Сторона должна быть front или back.")
+            return
+
+        if self.is_new():
+            if not self.slug():
+                QMessageBox.warning(self, "Нужен slug", "Для нового шаблона укажи slug.")
+                return
+        else:
+            if not self.template_id():
+                QMessageBox.warning(self, "Нужен шаблон", "Выбери существующий шаблон.")
+                return
+
+        self.accept()
+
+# qr_preset_studio/ui/windows/template_manager_window.py
+# qr_preset_studio/ui/windows/template_manager_window.py
+from __future__ import annotations
+
+import base64
+import hashlib
+from pathlib import Path
+
+from PySide6.QtCore import Qt, QSize, QUrl
+from PySide6.QtGui import QAction, QIcon, QPixmap, QResizeEvent, QWheelEvent
+from PySide6.QtNetwork import QNetworkAccessManager, QNetworkReply, QNetworkRequest
+from PySide6.QtWidgets import (
+    QBoxLayout,
+    QDialog,
+    QHBoxLayout,
+    QLabel,
+    QMainWindow,
+    QMessageBox,
+    QPushButton,
+    QTableWidget,
+    QTableWidgetItem,
+    QToolBar,
+    QVBoxLayout,
+    QWidget,
+    QHeaderView,
+    QScrollArea,
+)
+
+from qr_preset_studio.application.services.template_service import TemplateService
+from qr_preset_studio.domain.models.template import CardTemplate
+
+
+_THUMB_SIZE = QSize(220, 140)
+_VIEW_SIZE = QSize(900, 600)
+_ZOOM_MIN = 0.25
+_ZOOM_MAX = 5.0
+_ZOOM_STEP = 1.15
+
+
+def _is_url(value: str) -> bool:
+    v = (value or "").strip().lower()
+    return v.startswith("http://") or v.startswith("https://")
+
+
+def _is_data_uri(value: str) -> bool:
+    v = (value or "").strip().lower()
+    return v.startswith("data:image/") and "," in v
+
+
+def _pixmap_from_data_uri(value: str) -> QPixmap | None:
+    if not _is_data_uri(value):
+        return None
+    try:
+        header, b64 = value.split(",", 1)
+        _ = header  # not used now
+        data = base64.b64decode(b64, validate=False)
+    except Exception:
+        return None
+
+    pix = QPixmap()
+    if not pix.loadFromData(data):
+        return None
+    return pix
+
+
+def _safe_suffix_from_url(url: QUrl) -> str:
+    suffix = Path(url.path()).suffix.lower()
+    if suffix in {".png", ".jpg", ".jpeg", ".webp", ".bmp"}:
+        return suffix
+    return ".png"
+
+
+class TemplatePreviewDialog(QDialog):
+    def __init__(self, *, title: str, cache_dir: Path, parent=None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle(title)
+        self.resize(_VIEW_SIZE)
+
+        self._cache_dir = cache_dir
+        self._cache_dir.mkdir(parents=True, exist_ok=True)
+
+        self._net = QNetworkAccessManager(self)
+        self._pending: dict[QNetworkReply, tuple[ZoomablePreviewArea, Path]] = {}
+
+        root = QVBoxLayout(self)
+        root.setContentsMargins(12, 12, 12, 12)
+        root.setSpacing(10)
+
+        top_bar = QHBoxLayout()
+        header = QLabel(title)
+        header.setStyleSheet("font-weight: 700; font-size: 16px;")
+        top_bar.addWidget(header, 1)
+
+        self._mode_btn = QPushButton("Вид: Горизонтальный")
+        self._mode_btn.setFixedWidth(180)
+        self._mode_btn.clicked.connect(self._toggle_view_mode)
+        top_bar.addWidget(self._mode_btn)
+
+        root.addLayout(top_bar)
+
+        content = QWidget()
+        self._content_layout = QBoxLayout(QBoxLayout.LeftToRight, content)
+        self._content_layout.setContentsMargins(0, 0, 0, 0)
+        self._content_layout.setSpacing(12)
+
+        self.front_label = self._image_panel("Front")
+        self.back_label = self._image_panel("Back")
+
+        self._content_layout.addWidget(self.front_label, 1)
+        self._content_layout.addWidget(self.back_label, 1)
+
+        root.addWidget(content, 1)
+
+        hint = QLabel("Клик по строке в менеджере открывает увеличенный просмотр.")
+        hint.setStyleSheet("color: #475569;")
+        root.addWidget(hint)
+
+    def _toggle_view_mode(self) -> None:
+        if self._content_layout.direction() == QBoxLayout.LeftToRight:
+            self._content_layout.setDirection(QBoxLayout.TopToBottom)
+            self._mode_btn.setText("Вид: Вертикальный")
+        else:
+            self._content_layout.setDirection(QBoxLayout.LeftToRight)
+            self._mode_btn.setText("Вид: Горизонтальный")
+
+    def set_images(self, front_source: str, back_source: str) -> None:
+        self._set_image(self.front_label, front_source)
+        self._set_image(self.back_label, back_source)
+
+    def _image_panel(self, title: str) -> "ZoomablePreviewArea":
+        panel = ZoomablePreviewArea(title)
+        panel.setMinimumSize(420, 320)
+        return panel
+
+    def _apply_pixmap(self, target: "ZoomablePreviewArea", pixmap: QPixmap) -> None:
+        if pixmap.isNull():
+            target.set_message("Превью не удалось загрузить")
+            return
+        target.set_pixmap(pixmap)
+
+    def _set_image(self, target: "ZoomablePreviewArea", source: str) -> None:
+        src = (source or "").strip()
+        if not src:
+            target.set_message("(нет превью)")
+            return
+
+        data_pix = _pixmap_from_data_uri(src)
+        if data_pix is not None:
+            self._apply_pixmap(target, data_pix)
+            return
+
+        if _is_url(src):
+            url = QUrl(src)
+            cache_path = self._cache_path_for_url(url)
+            if cache_path.is_file():
+                self._apply_pixmap(target, QPixmap(str(cache_path)))
+                return
+
+            target.set_message("Загрузка превью...")
+            req = QNetworkRequest(url)
+            reply = self._net.get(req)
+            self._pending[reply] = (target, cache_path)
+            reply.finished.connect(lambda r=reply: self._on_download_finished(r))
+            return
+
+        path = Path(src).expanduser()
+        if path.is_file():
+            self._apply_pixmap(target, QPixmap(str(path)))
+            return
+
+        target.set_message("Превью не найдено")
+
+    def _cache_path_for_url(self, url: QUrl) -> Path:
+        digest = hashlib.sha256(url.toString().encode("utf-8")).hexdigest()
+        suffix = _safe_suffix_from_url(url)
+        return self._cache_dir / f"{digest}{suffix}"
+
+    def _on_download_finished(self, reply: QNetworkReply) -> None:
+        try:
+            target, cache_path = self._pending.pop(reply)
+        except KeyError:
+            reply.deleteLater()
+            return
+
+        try:
+            if reply.error() != QNetworkReply.NetworkError.NoError:
+                target.set_message(f"Ошибка загрузки: {reply.errorString()}")
+                return
+
+            data = bytes(reply.readAll())
+            cache_path.parent.mkdir(parents=True, exist_ok=True)
+            cache_path.write_bytes(data)
+
+            pixmap = QPixmap()
+            pixmap.loadFromData(data)
+            self._apply_pixmap(target, pixmap)
+        finally:
+            reply.deleteLater()
+
+
+class ZoomablePreviewArea(QScrollArea):
+    def __init__(self, title: str, parent=None) -> None:
+        super().__init__(parent)
+        self._title = title
+        self._base_pixmap: QPixmap | None = None
+        self._zoom = 1.0
+
+        self.setAlignment(Qt.AlignCenter)
+        self.setStyleSheet(
+            "QScrollArea { background: #E2E8F0; border: 1px solid #CBD5E1; border-radius: 12px; }"
+        )
+
+        self._label = QLabel()
+        self._label.setAlignment(Qt.AlignCenter)
+        self._label.setWordWrap(True)
+        self._label.setStyleSheet("background: transparent; border: 0; padding: 10px;")
+        self.setWidget(self._label)
+        self.set_message("(нет превью)")
+
+    def set_message(self, text: str) -> None:
+        self._base_pixmap = None
+        self._zoom = 1.0
+        self._label.clear()
+        self._label.setText(f"{self._title}\n{text}")
+        self._label.adjustSize()
+        self._center_on_content()
+
+    def set_pixmap(self, pixmap: QPixmap) -> None:
+        self._base_pixmap = pixmap
+        self._zoom = 1.0
+        self._update_scaled_pixmap()
+
+    def resizeEvent(self, event: QResizeEvent) -> None:
+        super().resizeEvent(event)
+        if self._base_pixmap is not None:
+            self._update_scaled_pixmap()
+
+    def wheelEvent(self, event: QWheelEvent) -> None:
+        if (
+            self._base_pixmap is not None
+            and event.modifiers() & Qt.ControlModifier
+            and event.angleDelta().y() != 0
+        ):
+            steps = event.angleDelta().y() / 120
+            factor = _ZOOM_STEP ** steps
+            self._set_zoom(self._zoom * factor)
+            event.accept()
+            return
+        super().wheelEvent(event)
+
+    def _set_zoom(self, zoom: float) -> None:
+        if self._base_pixmap is None:
+            return
+        bounded_zoom = max(_ZOOM_MIN, min(_ZOOM_MAX, zoom))
+        if abs(bounded_zoom - self._zoom) < 1e-6:
+            return
+        self._zoom = bounded_zoom
+        self._update_scaled_pixmap()
+
+    def _update_scaled_pixmap(self) -> None:
+        if self._base_pixmap is None:
+            return
+
+        fit_scale = self._fit_scale()
+        scale = fit_scale * self._zoom
+        width = max(1, int(round(self._base_pixmap.width() * scale)))
+        height = max(1, int(round(self._base_pixmap.height() * scale)))
+        scaled = self._base_pixmap.scaled(
+            width,
+            height,
+            Qt.IgnoreAspectRatio,
+            Qt.SmoothTransformation,
+        )
+        self._label.clear()
+        self._label.setPixmap(scaled)
+        self._label.adjustSize()
+        self._center_on_content()
+
+    def _fit_scale(self) -> float:
+        if self._base_pixmap is None:
+            return 1.0
+
+        viewport_size = self.viewport().size()
+        available_width = max(1, viewport_size.width() - 20)
+        available_height = max(1, viewport_size.height() - 20)
+        width_scale = available_width / max(1, self._base_pixmap.width())
+        height_scale = available_height / max(1, self._base_pixmap.height())
+        return min(width_scale, height_scale, 1.0)
+
+    def _center_on_content(self) -> None:
+        hbar = self.horizontalScrollBar()
+        vbar = self.verticalScrollBar()
+        hbar.setValue(hbar.maximum() // 2)
+        vbar.setValue(vbar.maximum() // 2)
+
+
+class TemplateManagerWindow(QMainWindow):
+    def __init__(self, template_service: TemplateService) -> None:
+        super().__init__()
+        self._template_service = template_service
+
+        self.setWindowTitle("Template Manager")
+        self.resize(1200, 720)
+
+        self._net = QNetworkAccessManager(self)
+        self._pending: dict[QNetworkReply, tuple[int, int, Path, str]] = {}
+        self._pixmap_cache: dict[str, QPixmap] = {}
+
+        self._build_ui()
+
+    def reload(self) -> None:
+        try:
+            templates = self._template_service.list_all()
+        except Exception as exc:
+            QMessageBox.critical(self, "Ошибка загрузки шаблонов", str(exc))
+            return
+
+        self._fill_table(templates)
+        self.statusBar().showMessage(f"Шаблонов: {len(templates)}", 3000)
+
+    def _build_ui(self) -> None:
+        root = QWidget()
+        layout = QVBoxLayout(root)
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(10)
+
+        info = QLabel("Источник: MySQL таблица swyp_cards_templates")
+        info.setStyleSheet("color: #475569;")
+        layout.addWidget(info)
+
+        self.table = QTableWidget()
+        self.table.setColumnCount(4)
+        self.table.setHorizontalHeaderLabels(["id", "slug", "front_preview", "back_preview"])
+        self.table.verticalHeader().setVisible(False)
+        self.table.setEditTriggers(QTableWidget.NoEditTriggers)
+        self.table.setSelectionBehavior(QTableWidget.SelectRows)
+        self.table.setSelectionMode(QTableWidget.SingleSelection)
+        self.table.setIconSize(_THUMB_SIZE)
+        self.table.cellClicked.connect(self._open_preview_for_row)
+
+        header = self.table.horizontalHeader()
+        header.setSectionResizeMode(0, QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(1, QHeaderView.Stretch)
+        header.setSectionResizeMode(2, QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(3, QHeaderView.ResizeToContents)
+
+        layout.addWidget(self.table, 1)
+        self.setCentralWidget(root)
+
+        toolbar = QToolBar("Templates")
+        toolbar.setMovable(False)
+        self.addToolBar(toolbar)
+
+        refresh_action = QAction("Обновить", self)
+        refresh_action.triggered.connect(self.reload)
+        toolbar.addAction(refresh_action)
+
+    def _fill_table(self, templates: list[CardTemplate]) -> None:
+        self.table.setRowCount(len(templates))
+
+        for row, tpl in enumerate(templates):
+            self.table.setRowHeight(row, _THUMB_SIZE.height() + 16)
+
+            id_item = QTableWidgetItem(tpl.id or "—")
+            id_item.setData(Qt.ItemDataRole.UserRole, tpl)  # keep full template on the row
+            self.table.setItem(row, 0, id_item)
+
+            slug_item = QTableWidgetItem(tpl.slug or "—")
+            self.table.setItem(row, 1, slug_item)
+
+            self._set_preview_cell(row, 2, tpl.front_preview)
+            self._set_preview_cell(row, 3, tpl.back_preview)
+
+    def _set_preview_cell(self, row: int, col: int, source: str) -> None:
+        item = QTableWidgetItem(" ")
+        item.setTextAlignment(Qt.AlignCenter)
+        self.table.setItem(row, col, item)
+
+        src = (source or "").strip()
+        if not src:
+            item.setText("—")
+            return
+
+        # data URI
+        data_pix = _pixmap_from_data_uri(src)
+        if data_pix is not None and not data_pix.isNull():
+            item.setIcon(QIcon(self._scaled_thumb(data_pix)))
+            item.setText("")
+            return
+
+        # memory pixmap cache
+        cached = self._pixmap_cache.get(src)
+        if cached is not None and not cached.isNull():
+            item.setIcon(QIcon(self._scaled_thumb(cached)))
+            item.setText("")
+            return
+
+        if _is_url(src):
+            url = QUrl(src)
+            cache_path = self._cache_path_for_url(url)
+            if cache_path.is_file():
+                pix = QPixmap(str(cache_path))
+                if not pix.isNull():
+                    self._pixmap_cache[src] = pix
+                    item.setIcon(QIcon(self._scaled_thumb(pix)))
+                    item.setText("")
+                    return
+
+            item.setText("Загрузка…")
+            req = QNetworkRequest(url)
+            reply = self._net.get(req)
+            self._pending[reply] = (row, col, cache_path, src)
+            reply.finished.connect(lambda r=reply: self._on_preview_download_finished(r))
+            return
+
+        path = Path(src).expanduser()
+        if path.is_file():
+            pix = QPixmap(str(path))
+            if pix.isNull():
+                item.setText("Ошибка")
+                return
+            self._pixmap_cache[src] = pix
+            item.setIcon(QIcon(self._scaled_thumb(pix)))
+            item.setText("")
+            return
+
+        item.setText("Не найдено")
+
+    def _scaled_thumb(self, pixmap: QPixmap) -> QPixmap:
+        return pixmap.scaled(_THUMB_SIZE, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+
+    def _cache_path_for_url(self, url: QUrl) -> Path:
+        self._template_service.cache_dir.mkdir(parents=True, exist_ok=True)
+        digest = hashlib.sha256(url.toString().encode("utf-8")).hexdigest()
+        suffix = _safe_suffix_from_url(url)
+        return self._template_service.cache_dir / f"{digest}{suffix}"
+
+    def _on_preview_download_finished(self, reply: QNetworkReply) -> None:
+        meta = self._pending.pop(reply, None)
+        try:
+            if meta is None:
+                return
+
+            row, col, cache_path, source_key = meta
+            item = self.table.item(row, col)
+            if item is None:
+                return
+
+            if reply.error() != QNetworkReply.NetworkError.NoError:
+                item.setText("Ошибка")
+                return
+
+            data = bytes(reply.readAll())
+            cache_path.parent.mkdir(parents=True, exist_ok=True)
+            cache_path.write_bytes(data)
+
+            pix = QPixmap()
+            pix.loadFromData(data)
+            if pix.isNull():
+                item.setText("Ошибка")
+                return
+
+            self._pixmap_cache[source_key] = pix
+            item.setIcon(QIcon(self._scaled_thumb(pix)))
+            item.setText("")
+        finally:
+            reply.deleteLater()
+
+    def _open_preview_for_row(self, row: int, _col: int) -> None:
+        id_item = self.table.item(row, 0)
+        if id_item is None:
+            return
+
+        tpl = id_item.data(Qt.ItemDataRole.UserRole)
+        if tpl is None:
+            return
+
+        title = f"{getattr(tpl, 'id', '')} / {getattr(tpl, 'slug', '')}".strip(" /")
+        dlg = TemplatePreviewDialog(title=title or "Template preview", cache_dir=self._template_service.cache_dir, parent=self)
+        dlg.set_images(getattr(tpl, "front_preview", ""), getattr(tpl, "back_preview", ""))
+        dlg.exec()
