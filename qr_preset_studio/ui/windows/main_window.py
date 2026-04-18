@@ -270,7 +270,7 @@ class MainWindow(QMainWindow):
 
     def _export_png(self) -> None:
         preset = self.editor.to_preset()
-        if not preset.link:
+        if not preset.hide_qr and not preset.link:
             QMessageBox.warning(self, "Нужна ссылка", "Заполни поле со ссылкой для QR перед экспортом.")
             return
 

@@ -68,6 +68,7 @@ class PresetEditor(QWidget):
             background_offset_x=self.background_panel.background_offset_x_spin.value(),
             background_offset_y=self.background_panel.background_offset_y_spin.value(),
             qr_scale_percent=self.content_panel.qr_scale_spin.value(),
+            hide_qr=self.content_panel.hide_qr_check.isChecked(),
             qr_offset_x=self.content_panel.qr_offset_x_spin.value(),
             qr_offset_y=self.content_panel.qr_offset_y_spin.value(),
             qr_version=_parse_version(self.content_panel.qr_version_combo.currentText()),
@@ -122,6 +123,7 @@ class PresetEditor(QWidget):
         self.background_panel.background_offset_y_spin.setValue(preset.background_offset_y)
 
         self.content_panel.qr_scale_spin.setValue(preset.qr_scale_percent)
+        self.content_panel.hide_qr_check.setChecked(preset.hide_qr)
         self.content_panel.qr_offset_x_spin.setValue(preset.qr_offset_x)
         self.content_panel.qr_offset_y_spin.setValue(preset.qr_offset_y)
         self.content_panel.qr_version_combo.setCurrentText(_version_text(preset.qr_version))
@@ -193,6 +195,7 @@ class PresetEditor(QWidget):
             "qr_optimize": self.content_panel.qr_optimize_field,
             "qr_dpi": self.content_panel.qr_dpi_field,
             "qr_scale_percent": self.content_panel.qr_scale_field,
+            "hide_qr": self.content_panel.hide_qr_field,
             "qr_offset_x": self.content_panel.qr_offset_x_field,
             "qr_offset_y": self.content_panel.qr_offset_y_field,
             "canvas_width": self.canvas_panel.canvas_width_field,

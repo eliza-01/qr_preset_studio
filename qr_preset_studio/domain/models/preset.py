@@ -25,6 +25,7 @@ class Preset:
     background_offset_y: int = 0
 
     qr_scale_percent: int = 42
+    hide_qr: bool = False
     qr_offset_x: int = 0
     qr_offset_y: int = 0
     qr_version: int = 3
@@ -100,6 +101,7 @@ class Preset:
         preset.background_offset_y = _clamp_int(preset.background_offset_y, -5000, 5000, 0)
 
         preset.qr_scale_percent = _clamp_int(preset.qr_scale_percent, 10, 90, 42)
+        preset.hide_qr = _coerce_bool(preset.hide_qr, False)
         preset.qr_offset_x = _clamp_int(preset.qr_offset_x, -5000, 5000, 0)
         preset.qr_offset_y = _clamp_int(preset.qr_offset_y, -5000, 5000, 0)
         preset.qr_version = _clamp_int(preset.qr_version, 0, 40, 0)
@@ -157,6 +159,7 @@ class Preset:
             background_offset_x=int(round(self.background_offset_x * factor)),
             background_offset_y=int(round(self.background_offset_y * factor)),
             qr_scale_percent=self.qr_scale_percent,
+            hide_qr=self.hide_qr,
             qr_offset_x=int(round(self.qr_offset_x * factor)),
             qr_offset_y=int(round(self.qr_offset_y * factor)),
             qr_version=self.qr_version,

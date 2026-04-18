@@ -32,7 +32,7 @@ from qr_preset_studio.infrastructure.rendering.qr_matrix import (
 
 def render_preset(preset: Preset, qr_layer_scale: float | None = None) -> Image.Image:
     canvas = build_canvas(preset)
-    if not preset.link.strip():
+    if preset.hide_qr or not preset.link.strip():
         return canvas
 
     matrix = build_matrix(preset)

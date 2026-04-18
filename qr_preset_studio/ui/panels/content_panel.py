@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (
+    QCheckBox,
     QComboBox,
     QFormLayout,
     QGroupBox,
@@ -41,6 +42,7 @@ class ContentPanel(QGroupBox):
         self.qr_dpi_spin = _spin(72, 2400, " dpi")
 
         self.qr_scale_spin = _spin(10, 90, " %")
+        self.hide_qr_check = QCheckBox("Скрыть QR")
         self.qr_offset_x_spin = _spin(-5000, 5000, " px")
         self.qr_offset_y_spin = _spin(-5000, 5000, " px")
 
@@ -57,6 +59,7 @@ class ContentPanel(QGroupBox):
         self.qr_optimize_field = LockableField(self.qr_optimize_spin)
         self.qr_dpi_field = LockableField(self.qr_dpi_spin)
         self.qr_scale_field = LockableField(self.qr_scale_spin)
+        self.hide_qr_field = LockableField(self.hide_qr_check)
         self.qr_offset_x_field = LockableField(self.qr_offset_x_spin)
         self.qr_offset_y_field = LockableField(self.qr_offset_y_spin)
 
@@ -72,6 +75,7 @@ class ContentPanel(QGroupBox):
         form.setSpacing(10)
         form.addRow("Ссылка", self.link_field)
         form.addRow(_two_field_row(("QR DPI", self.qr_dpi_field), ("Размер QR", self.qr_scale_field)))
+        form.addRow(self.hide_qr_field)
         form.addRow(_two_field_row(("Сдвиг X", self.qr_offset_x_field), ("Сдвиг Y", self.qr_offset_y_field)))
         root.addLayout(form)
 
@@ -100,6 +104,7 @@ class ContentPanel(QGroupBox):
         self.qr_optimize_spin.valueChanged.connect(self.changed)
         self.qr_dpi_spin.valueChanged.connect(self.changed)
         self.qr_scale_spin.valueChanged.connect(self.changed)
+        self.hide_qr_check.toggled.connect(self.changed)
         self.qr_offset_x_spin.valueChanged.connect(self.changed)
         self.qr_offset_y_spin.valueChanged.connect(self.changed)
 
