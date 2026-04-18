@@ -31,6 +31,8 @@ from PySide6.QtWidgets import (
     QScrollArea,
 )
 
+from qr_preset_studio.application.services.output_profile_service import OutputProfileService
+from qr_preset_studio.application.services.print_batch_service import PrintBatchService
 from qr_preset_studio.application.services.swyp_card_assignment_service import SwypCardAssignmentService
 from qr_preset_studio.application.services.template_service import TemplateService
 from qr_preset_studio.domain.models.swyp_card import SwypCard
@@ -355,12 +357,18 @@ class AssignTemplateDialog(QDialog):
 
     def selected_card_ids(self) -> list[str]:
         ids: list[str] = []
+        for card in self.selected_cards():
+            ids.append(card.id)
+        return ids
+
+    def selected_cards(self) -> list[SwypCard]:
+        cards: list[SwypCard] = []
         for index in range(self.cards_list.count()):
             item = self.cards_list.item(index)
             widget = self.cards_list.itemWidget(item)
             if isinstance(widget, SelectableCardListItem) and widget.is_checked():
-                ids.append(widget.card.id)
-        return ids
+                cards.append(widget.card)
+        return cards
 
     def _build_ui(self) -> None:
         root = QVBoxLayout(self)
@@ -578,10 +586,16 @@ class TemplateManagerWindow(QMainWindow):
         self,
         template_service: TemplateService,
         swyp_card_assignment_service: SwypCardAssignmentService,
+        print_batch_service: PrintBatchService,
+        output_profile_service: OutputProfileService,
+        output_profile_id: str,
     ) -> None:
         super().__init__()
         self._template_service = template_service
         self._swyp_card_assignment_service = swyp_card_assignment_service
+        self._print_batch_service = print_batch_service
+        self._output_profile_service = output_profile_service
+        self._output_profile_id = output_profile_id
 
         self.setWindowTitle("Template Manager")
         self.resize(1200, 720)
@@ -591,6 +605,9 @@ class TemplateManagerWindow(QMainWindow):
         self._pixmap_cache: dict[str, QPixmap] = {}
 
         self._build_ui()
+
+    def set_output_profile_id(self, output_profile_id: str) -> None:
+        self._output_profile_id = (output_profile_id or "").strip()
 
     def reload(self) -> None:
         try:
@@ -790,8 +807,33 @@ class TemplateManagerWindow(QMainWindow):
         if dlg.exec() != int(QDialog.DialogCode.Accepted):
             return
 
-        assigned_count = len(dlg.selected_card_ids())
+        assigned_cards = dlg.selected_cards()
+        assigned_count = len(assigned_cards)
+
+        try:
+            batch = self._print_batch_service.export_batch(
+                template=template,
+                cards=assigned_cards,
+                output_profile_id=self._output_profile_id or self._output_profile_service.default_profile_id(),
+            )
+        except Exception as exc:
+            QMessageBox.warning(
+                self,
+                "Шаблон присвоен, но экспорт не выполнен",
+                f"Назначение записано в БД, но не удалось сохранить batch-файлы:\n{exc}",
+            )
+            self.reload()
+            self.statusBar().showMessage(
+                f"Шаблон id={template.id} присвоен {assigned_count} ссылкам, export не выполнен",
+                7000,
+            )
+            return
+
+        profile = self._output_profile_service.get(
+            self._output_profile_id or self._output_profile_service.default_profile_id()
+        )
+        self.reload()
         self.statusBar().showMessage(
-            f"Шаблон id={template.id} присвоен {assigned_count} ссылкам",
-            5000,
+            f"Шаблон id={template.id} присвоен {assigned_count} ссылкам. Batch: {batch.batch_dir} ({profile.file_format})",
+            7000,
         )

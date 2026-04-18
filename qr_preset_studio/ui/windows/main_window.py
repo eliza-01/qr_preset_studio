@@ -21,6 +21,8 @@ from PySide6.QtWidgets import (
 )
 
 from qr_preset_studio.application.services.app_state_service import AppStateService
+from qr_preset_studio.application.services.output_profile_service import OutputProfileService
+from qr_preset_studio.application.services.print_batch_service import PrintBatchService
 from qr_preset_studio.application.services.preset_service import PresetService
 from qr_preset_studio.application.services.render_service import RenderService
 from qr_preset_studio.application.services.swyp_card_assignment_service import SwypCardAssignmentService
@@ -40,6 +42,8 @@ class MainWindow(QMainWindow):
         app_state_service: AppStateService,
         template_service: TemplateService,
         swyp_card_assignment_service: SwypCardAssignmentService,
+        output_profile_service: OutputProfileService,
+        print_batch_service: PrintBatchService,
     ) -> None:
         super().__init__()
         self._preset_service = preset_service
@@ -47,6 +51,8 @@ class MainWindow(QMainWindow):
         self._app_state_service = app_state_service
         self._template_service = template_service
         self._swyp_card_assignment_service = swyp_card_assignment_service
+        self._output_profile_service = output_profile_service
+        self._print_batch_service = print_batch_service
 
         self._preset = Preset()
         self._template_manager: TemplateManagerWindow | None = None
@@ -79,6 +85,7 @@ class MainWindow(QMainWindow):
         self.preview_panel = PreviewPanel()
         splitter.addWidget(self.preview_panel)
         splitter.setSizes([480, 980])
+        self.editor.actions_panel.set_output_profiles(self._output_profile_service.list_all())
 
         footer = QHBoxLayout()
         footer.addStretch(1)
@@ -99,6 +106,7 @@ class MainWindow(QMainWindow):
         self.editor.actions_panel.save_requested.connect(self._save_preset)
         self.editor.actions_panel.load_requested.connect(self._load_preset)
         self.editor.actions_panel.export_requested.connect(self._export_png)
+        self.editor.actions_panel.output_profile_changed.connect(self._on_output_profile_changed)
 
         self.editor.actions_panel.save_template_requested.connect(self._save_template_to_db)
         self.editor.actions_panel.template_manager_requested.connect(self._open_template_manager)
@@ -111,7 +119,12 @@ class MainWindow(QMainWindow):
             self._template_manager = TemplateManagerWindow(
                 self._template_service,
                 self._swyp_card_assignment_service,
+                self._print_batch_service,
+                self._output_profile_service,
+                self.current_output_profile_id(),
             )
+        else:
+            self._template_manager.set_output_profile_id(self.current_output_profile_id())
 
         self._template_manager.reload()
         self._template_manager.show()
@@ -173,6 +186,7 @@ class MainWindow(QMainWindow):
         last_path = self._app_state_service.last_preset_path()
         if last_path is None:
             self.editor.set_preset(self._preset)
+            self._restore_output_profile()
             return
 
         try:
@@ -180,10 +194,12 @@ class MainWindow(QMainWindow):
         except Exception:
             self._app_state_service.clear_last_preset_path()
             self.editor.set_preset(self._preset)
+            self._restore_output_profile()
             return
 
         self._preset = preset
         self.editor.set_preset(preset)
+        self._restore_output_profile()
 
     def _refresh_preview(self) -> None:
         self._preset = self.editor.to_preset()
@@ -242,6 +258,7 @@ class MainWindow(QMainWindow):
 
         self._app_state_service.set_last_preset_path(path)
         self.editor.set_preset(preset)
+        self._restore_output_profile()
         self._refresh_preview()
 
         background_path = preset.background_image_path
@@ -259,17 +276,20 @@ class MainWindow(QMainWindow):
 
         path, _ = QFileDialog.getSaveFileName(
             self,
-            "Экспорт PNG",
-            str(Path.home() / "qr_export.png"),
-            "PNG (*.png)",
+            "Экспорт файла",
+            str(Path.home() / self._default_export_filename()),
+            self._export_file_filter(),
         )
         if not path:
             return
 
         try:
             image = self._render_service.render_export(preset)
-            dpi = image.info.get("dpi", (300, 300))
-            image.save(path, format="PNG", dpi=dpi)
+            profile = self._output_profile_service.get(self.current_output_profile_id())
+            export_path = Path(path)
+            if export_path.suffix.lower() != profile.file_extension.lower():
+                export_path = export_path.with_suffix(profile.file_extension)
+            self._render_service.save_rendered_image(image, export_path, profile)
         except ValueError as exc:
             QMessageBox.warning(self, "QR не помещается", str(exc))
             return
@@ -277,8 +297,10 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, "Ошибка экспорта", str(exc))
             return
 
-        actual_dpi = int(round(dpi[0])) if dpi else 300
-        self.statusBar().showMessage(f"PNG сохранён: {path} ({actual_dpi} dpi)", 5000)
+        self.statusBar().showMessage(
+            f"Файл сохранён: {export_path} ({profile.file_format}, {profile.color_mode}, {profile.dpi} dpi)",
+            5000,
+        )
 
     def _choose_background(self) -> None:
         path, _ = QFileDialog.getOpenFileName(
@@ -307,6 +329,30 @@ class MainWindow(QMainWindow):
             return
 
         self.close()
+
+    def current_output_profile_id(self) -> str:
+        return self.editor.actions_panel.current_output_profile_id()
+
+    def _default_export_filename(self) -> str:
+        profile = self._output_profile_service.get(self.current_output_profile_id())
+        return f"qr_export{profile.file_extension}"
+
+    def _export_file_filter(self) -> str:
+        profile = self._output_profile_service.get(self.current_output_profile_id())
+        extension = profile.file_extension.lstrip(".").upper()
+        return f"{extension} (*{profile.file_extension})"
+
+    def _restore_output_profile(self) -> None:
+        stored = self._app_state_service.output_profile_id().strip()
+        fallback = self._output_profile_service.default_profile_id()
+        profile_id = stored or fallback
+        self.editor.actions_panel.set_output_profile_id(profile_id)
+        self._app_state_service.set_output_profile_id(self.current_output_profile_id())
+
+    def _on_output_profile_changed(self, profile_id: str) -> None:
+        self._app_state_service.set_output_profile_id(profile_id)
+        if self._template_manager is not None:
+            self._template_manager.set_output_profile_id(profile_id)
 
 
 def _png_data_uri(pil_image) -> str:

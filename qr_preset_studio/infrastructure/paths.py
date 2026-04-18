@@ -11,6 +11,7 @@ class AppPaths:
     presets_dir: Path
     templates_dir: Path
     templates_cache_dir: Path
+    print_batches_dir: Path
     database_dir: Path
     database_file: Path
     app_state_file: Path
@@ -23,6 +24,7 @@ class AppPaths:
 
         templates_dir = root_dir / "templates"
         templates_cache_dir = root_dir / "template_cache"
+        print_batches_dir = Path(__file__).resolve().parents[1] / "print_batches"
 
         database_dir = root_dir / "database"
         database_file = database_dir / "qr_preset_studio.sqlite3"
@@ -31,6 +33,7 @@ class AppPaths:
         presets_dir.mkdir(parents=True, exist_ok=True)
         templates_dir.mkdir(parents=True, exist_ok=True)
         templates_cache_dir.mkdir(parents=True, exist_ok=True)
+        print_batches_dir.mkdir(parents=True, exist_ok=True)
         database_dir.mkdir(parents=True, exist_ok=True)
 
         return cls(
@@ -38,6 +41,7 @@ class AppPaths:
             presets_dir=presets_dir,
             templates_dir=templates_dir,
             templates_cache_dir=templates_cache_dir,
+            print_batches_dir=print_batches_dir,
             database_dir=database_dir,
             database_file=database_file,
             app_state_file=app_state_file,
