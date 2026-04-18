@@ -488,6 +488,7 @@ class AssignTemplateDialog(QDialog):
         try:
             updated = self._swyp_card_assignment_service.assign_template(
                 template_id=self._template.id,
+                template_slug=self._template.slug,
                 card_ids=selected_ids,
             )
         except Exception as exc:
