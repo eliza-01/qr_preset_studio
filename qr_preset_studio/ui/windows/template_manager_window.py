@@ -35,6 +35,7 @@ from qr_preset_studio.application.services.output_profile_service import OutputP
 from qr_preset_studio.application.services.print_batch_service import PrintBatchService
 from qr_preset_studio.application.services.swyp_card_assignment_service import SwypCardAssignmentService
 from qr_preset_studio.application.services.template_service import TemplateService
+from qr_preset_studio.domain.constants import SWYP_PUBLIC_DOMAIN
 from qr_preset_studio.domain.models.swyp_card import SwypCard
 from qr_preset_studio.domain.models.template import CardTemplate
 
@@ -625,7 +626,10 @@ class TemplateManagerWindow(QMainWindow):
         layout.setContentsMargins(12, 12, 12, 12)
         layout.setSpacing(10)
 
-        info = QLabel("Источник: MySQL таблица swyp_cards_templates")
+        info = QLabel(
+            "Источник: MySQL таблица swyp_cards_templates\n"
+            f"Публичный домен для создаваемых ссылок: {SWYP_PUBLIC_DOMAIN}"
+        )
         info.setStyleSheet("color: #475569;")
         layout.addWidget(info)
 

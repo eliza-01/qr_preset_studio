@@ -19,6 +19,7 @@ from qr_preset_studio.domain.constants import (
     QR_ERROR_CORRECTION_LEVELS,
     QR_MASK_PATTERN_VALUES,
     QR_VERSION_VALUES,
+    swyp_public_base_url,
 )
 from qr_preset_studio.ui.widgets.collapsible_section import CollapsibleSection
 from qr_preset_studio.ui.widgets.lockable_field import LockableField
@@ -33,7 +34,7 @@ class ContentPanel(QGroupBox):
         root.setSpacing(10)
 
         self.link_input = QLineEdit()
-        self.link_input.setPlaceholderText("https://example.com")
+        self.link_input.setPlaceholderText(f"{swyp_public_base_url()}/slug")
 
         self.qr_version_combo = _combo(QR_VERSION_VALUES)
         self.qr_error_correction_combo = _combo(QR_ERROR_CORRECTION_LEVELS)

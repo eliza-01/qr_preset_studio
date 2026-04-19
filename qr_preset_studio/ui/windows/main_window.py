@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (
     QDialog,
     QFileDialog,
     QHBoxLayout,
+    QLabel,
     QMainWindow,
     QMessageBox,
     QPushButton,
@@ -27,6 +28,7 @@ from qr_preset_studio.application.services.preset_service import PresetService
 from qr_preset_studio.application.services.render_service import RenderService
 from qr_preset_studio.application.services.swyp_card_assignment_service import SwypCardAssignmentService
 from qr_preset_studio.application.services.template_service import TemplateService
+from qr_preset_studio.domain.constants import SWYP_PUBLIC_DOMAIN
 from qr_preset_studio.domain.models.preset import Preset
 from qr_preset_studio.ui.forms.preset_editor import PresetEditor
 from qr_preset_studio.ui.panels.preview_panel import PreviewPanel
@@ -88,6 +90,9 @@ class MainWindow(QMainWindow):
         self.editor.actions_panel.set_output_profiles(self._output_profile_service.list_all())
 
         footer = QHBoxLayout()
+        self.domain_label = QLabel(f"Публичный домен: {SWYP_PUBLIC_DOMAIN}")
+        self.domain_label.setStyleSheet("color: #475569; font-weight: 600;")
+        footer.addWidget(self.domain_label)
         footer.addStretch(1)
 
         self.restart_button = QPushButton("Перезапустить приложение")
