@@ -29,6 +29,7 @@ class ActionsPanel(QGroupBox):
         templates_button = QPushButton("Открыть Template Manager")
         self.output_profile_combo = QComboBox()
         self.output_profile_combo.currentIndexChanged.connect(self._emit_output_profile_changed)
+        self.output_profile_combo.currentIndexChanged.connect(self._update_output_profile_tooltip)
 
         save_button.clicked.connect(self.save_requested)
         save_template_button.clicked.connect(self.save_template_requested)
@@ -50,8 +51,14 @@ class ActionsPanel(QGroupBox):
         self.output_profile_combo.clear()
         for profile in profiles:
             self.output_profile_combo.addItem(profile.label, profile.id)
+            self.output_profile_combo.setItemData(
+                self.output_profile_combo.count() - 1,
+                profile.description,
+                role=3,
+            )
         self.output_profile_combo.blockSignals(False)
         self.set_output_profile_id(current_id)
+        self._update_output_profile_tooltip()
 
     def set_output_profile_id(self, profile_id: str) -> None:
         wanted = (profile_id or "").strip()
@@ -74,3 +81,11 @@ class ActionsPanel(QGroupBox):
 
     def _emit_output_profile_changed(self) -> None:
         self.output_profile_changed.emit(self.current_output_profile_id())
+
+    def _update_output_profile_tooltip(self) -> None:
+        index = self.output_profile_combo.currentIndex()
+        if index < 0:
+            self.output_profile_combo.setToolTip("")
+            return
+        description = self.output_profile_combo.itemData(index, role=3)
+        self.output_profile_combo.setToolTip("" if description is None else str(description))
